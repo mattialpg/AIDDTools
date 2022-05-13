@@ -13,7 +13,5 @@ parmchk2 -i substrate.mol2 -f mol2 -s 2 -o substrate.fcrmod
 tleap -f CAR_noncov.inp
 ```
 1.  Open the mo2 file with pymol together with the model pdb. Do:
-```pymol
-Wizard > Pair fit
-```
+> Wizard; Pair fit
 
