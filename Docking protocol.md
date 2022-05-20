@@ -12,7 +12,19 @@ At this point we have to align the proteins. We can do it via the GUI by working
 ```
 Action > align > all to this
 ```
-However, this method often leaves some objects non-aligned. In this case you should align them amnually one by one. As an alternative, you can use the following command which give a better (but maybe slower) result:
+However, this method often leaves some objects non-aligned. In this case you should align them amnually one by one. As an alternative, you can use the following commands which give a better (but maybe slower) result:
 ```
-for obj in cmd.get_object_list('sele'): cmd.align(obj, 'pdb2hvc')
+list = cmd.get_object_list();
+for obj in list[1:]: cmd.align(obj, list[0])
 ```
+Now that we have an aligned cluster of proteins, we need to reduce the number of structures by deleting the structures that:
+ - are not the AR protein;
+ - clearly stick out of the cluster because have a different 3D arrangement;
+ - are mutations of the AR protein;
+ - form a non-representative sub-cluster of the AR protein;
+ - have isolated ligands.
+To do so, we select the outlier objects with the cursor and run the following command:
+```
+for l in cmd.get_object_list('sele'): cmd.delete(l)
+```
+With this reduced protein cluster, we can now have a look at the structure of the binding pocket. For this, select the ligand and show the   
