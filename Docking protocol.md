@@ -27,4 +27,7 @@ To do so, we select the outlier objects with the cursor and run the following co
 ```
 for l in cmd.get_object_list('sele'): cmd.delete(l)
 ```
-With this reduced protein cluster, we can now have a look at the structure of the binding pocket. For this, select the ligand and show the   
+With this reduced protein cluster, we can now have a look at the structure of the binding pocket. Select the cluster of ligands and show the residues within 4 A from it:
+```
+(sele): Action > modify > around > residues within 4 A
+```
