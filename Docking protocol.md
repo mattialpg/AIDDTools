@@ -6,16 +6,16 @@ Let's suppose we want to find the medoid of the androgen receptor (AR). To this 
 
 Open a new PyMOL session and load all the AR structures. To clean up the view, remove all chains but A with the following command:
 ```
-remove visible and not chain A
+PyMOL>   remove visible and not chain A
 ```
 At this point we have to align the proteins. We can do it via the GUI by working on the first object in the list and clicking
 ```
-Action > align > all to this
+GUI     action, align, all to this
 ```
 However, this method often leaves some objects non-aligned. In this case, you have to select manually the non-aligned ones and run the following commands:
 ```
-list = cmd.get_object_list('sele');
-for obj in list[1:]: cmd.align(obj, list[0])
+PyMOL>   list = cmd.get_object_list('sele')
+PyMOL>   for obj in list[1:]: cmd.align(obj, list[0])
 ```
 Now that we have an aligned cluster of proteins, we need to reduce the number of structures by deleting the structures that:
  - Are not the AR protein;
@@ -25,9 +25,9 @@ Now that we have an aligned cluster of proteins, we need to reduce the number of
  - Have isolated ligands.
 To do so, we select the outlier objects with the cursor and run the following command:
 ```
-for l in cmd.get_object_list('sele'): cmd.delete(l)
+PyMOL>   for l in cmd.get_object_list('sele'): cmd.delete(l)
 ```
 With this reduced protein cluster, we can now have a look at the structure of the binding pocket. Select the cluster of ligands and show the residues within 4 A from it:
 ```
-(sele): Action > modify > around > residues within 4 A
+GUI     (sele), action, modify, around, residues within 4 A
 ```
