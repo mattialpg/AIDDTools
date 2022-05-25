@@ -24,11 +24,11 @@ We now need to reduce the number of objects in the aligned cluster by deleting t
  - form a non-representative sub-cluster of the protein;
  - have isolated ligands.
 
-To do so, we select the outlier objects with the cursor and run the following command:
+To do so, select the outlier objects with the cursor and run the following command:
 ```
 PyMOL>  for l in cmd.get_object_list('sele'): cmd.delete(l)
 ```
-With this reduced protein cluster, we can now have a look at the structure of the binding pocket. Select the cluster of ligands and show the residues within 4 A from it:
+At this point, we can have a closer look at the structure of the binding pocket. Select the cluster of ligands and show the residues within 4 A from it:
 ```
 GUI     (sele), action, modify, around, residues within 4 A
 ```
