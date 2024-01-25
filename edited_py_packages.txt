@@ -1,0 +1,23 @@
+
+~\miniconda3\envs\my-chem\lib\site-packages\networkx\readwrite\graphml.py
+(line 346)  replaced "np.int" with "int"
+~\miniconda3\envs\my-chem\lib\site-packages\networkx\readwrite\gexf.py
+(line 220)  replaced "np.int" with "int"
+
+2023-05-13 10:08:28,657 [WARNING] [__init__.py:5] root: Warning: importing 'simtk.openmm' is deprecated.  Import 'openmm' instead.
+
+*** Open Babel Warning  in OpenBabel::OBGlobalDataBase::Init
+  Unable to open data file 'space-groups.txt'
+==============================
+*** Open Babel Warning  in OpenBabel::OBGlobalDataBase::Init
+  Cannot initialize database 'space-groups.txt' which may cause further errors.
+ 
+#< Disable parsePDB reports by editing lines 178, 331 and 442 in
+# C:\Users\Mattia\anaconda3\pkgs\prody-2.4.0-py310h00ffb61_0\Lib\site-packages\prody\proteins\pdbfile.py >#
+#< Disable parsePDB warnings by commenting-out lines 115-119 in
+# C:\Users\Mattia\anaconda3\pkgs\prody-2.4.0-py310h00ffb61_0\Lib\site-packages\prody\compounds\pdbligands.py >#
+
+C:\Users\Idener\miniconda3\envs\my-chem\Lib\site-packages\mordred\ABCIndex.py
+ replace all instances of "np.float(" with "float("
+ 
+PFlushFast: Uncaught exception.  PyMOL may have a bug.
