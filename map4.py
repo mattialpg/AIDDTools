@@ -52,8 +52,7 @@ class MAP4Calculator:
 			return self._fold(atom_env_pairs)
 		elif self.return_strings:
 			return atom_env_pairs
-		
-		# return self.encoder.from_string_array(atom_env_pairs)
+		return self.encoder.from_string_array(atom_env_pairs)
 
 	def calculate_many(self, mols):
 		""" Calculates the atom pair minhashed fingerprint

@@ -1,4 +1,4 @@
-import sys, glob
+import sys, glob, re
 import numpy as np
 import pandas as pd
 from pprint import pprint
@@ -7,6 +7,27 @@ from pprint import pprint
 standard_AAs = {'VAL':'V', 'ILE':'I', 'LEU':'L', 'GLU':'E', 'GLN':'Q', 'ASP':'D', 'ASN':'N',
                 'HIS':'H', 'TRP':'W', 'PHE':'F', 'TYR':'Y', 'ARG':'R', 'LYS':'K', 'SER':'S',
                 'THR':'T', 'MET':'M', 'ALA':'A',  'GLY':'G', 'PRO':'P', 'CYS':'C'}
+
+AA_smiles = {'G': 'NCC(=O)O',
+            'A': 'C[C@H](N)C(=O)O',
+            'R': 'N=C(N)NCCC[C@H](N)C(=O)O',
+            'N': 'NC(=O)C[C@H](N)C(=O)O',
+            'D': 'N[C@@H](CC(=O)O)C(=O)O',
+            'C': 'N[C@@H](CS)C(=O)O',
+            'E': 'N[C@@H](CCC(=O)O)C(=O)O',
+            'Q': 'NC(=O)CC[C@H](N)C(=O)O',
+            'H': 'N[C@@H](Cc1cnc[nH]1)C(=O)O',
+            'I': 'CCC(C)[C@H](N)C(=O)O',
+            'L': 'CC(C)C[C@H](N)C(=O)O',
+            'K': 'NCCCC[C@H](N)C(=O)O',
+            'M': 'CSCC[C@H](N)C(=O)O',
+            'F': 'N[C@@H](Cc1ccccc1)C(=O)O',
+            'P': 'O=C(O)[C@@H]1CCCN1',
+            'S': 'N[C@@H](CO)C(=O)O',
+            'T': 'CC(O)[C@H](N)C(=O)O',
+            'W': 'N[C@@H](Cc1c[nH]c2ccccc12)C(=O)O',
+            'Y': 'N[C@@H](Cc1ccc(O)cc1)C(=O)O',
+            'V': 'CC(C)[C@H](N)C(=O)O'}
 
 # List of modified amino acids
 modified_AAs = {'060': 'CSC[C@H](C(=O)O)N', '0QL': 'C(CSSC[C@@H](C(=O)O)N)N',
@@ -141,7 +162,7 @@ hetatms = ['He', 'Li', 'Be', 'B', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'Ar',
            'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf']
 
 int_types = ['hydrophobic', 'hbond', 'waterbridge', 'saltbridge',
-             'pistacking', 'pication', 'halogen','metal']
+             'pistacking', 'pication', 'halogen', 'metal']
 
 nonLOI_list = nonLOI_list + list(standard_AAs.keys()) + list(modified_AAs.keys())
 
@@ -289,3 +310,26 @@ def moldrawsvg(mol, molSize=(400,300), kekulize=True):
     svg = drawer.GetDrawingText()
 
     return svg.replace("svg:","")
+
+def add_atom_idx(mol):
+    for atom in mol.GetAtoms():
+        atom.SetAtomMapNum(atom.GetIdx())
+    return
+
+def remove_atom_idx(mol):
+    for atom in mol.GetAtoms():
+        atom.ClearProp('molAtomMapNumber')
+    return
+    
+
+def custom_capitalize(sentence):
+    # Find all acronyms in the sentence
+    acronyms = re.findall(r'\b[A-Z]+\b', sentence)
+    
+    # Capitalize the first letter of the sentence but keep acronyms as they are
+    words = sentence.split()
+    first_word = words[0].capitalize() if words[0] not in acronyms else words[0]
+    
+    # Join the sentence back 
+    capitalized_sentence = ' '.join([first_word] + words[1:])
+    return capitalized_sentence

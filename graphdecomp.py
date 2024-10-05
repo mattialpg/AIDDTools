@@ -12,6 +12,8 @@ https://github.com/kheikamp/modified_molBLOCKS/blob/master/extendedRECAP.txt"""
 from rdkit import Chem
 from rdkit.Chem.BRICS import BreakBRICSBonds
 import networkx as nx
+from copy import deepcopy
+from rdkit.Chem import rdDepictor
 
 # SMARTS atomic environments for molecule fragmentation
 environDefs = {
@@ -213,8 +215,8 @@ for compats in reactionDefs:
 
 def SSSRsize_filter(bond, maxSR=8):
     judge=True
-    for i in range(3,maxSR+1):
-        if bond.IsInRingSize(i) :
+    for i in range(3, maxSR+1):
+        if bond.IsInRingSize(i):
             judge=False
             break           
     return judge
@@ -250,19 +252,16 @@ def add_atom_indices(mol):
     return mol
 
 def remove_atom_indices(mol):
+    # cmol = deepcopy(mol)
     for atom in mol.GetAtoms():
         atom.ClearProp('molAtomMapNumber')
     return mol
     
 def get_all_connected_subgraphs(G):
     """Get all connected subgraphs by a recursive procedure"""
-
-    con_comp = [c for c in sorted(nx.connected_components(G), key=len, reverse=True)]
-
+    
     def recursive_local_expand(node_set, possible, excluded, results, max_size):
-        """
-        Recursive function to add an extra node to the subgraph being formed
-        """
+        """Recursive function to add an extra node to the subgraph being formed"""
         results.append(node_set)
         if len(node_set) == max_size:
             return
@@ -271,19 +270,16 @@ def get_all_connected_subgraphs(G):
             excluded = excluded | {j}
             new_possible = (possible | set(G.neighbors(j))) - excluded
             recursive_local_expand(new_node_set, new_possible, excluded, results, max_size)
-   
+
+    # Iterate over connected components
     results = []
-    for cc in con_comp:
+    for cc in sorted(nx.connected_components(G), key=len, reverse=True):
         max_size = len(cc)
+        # Iterate over nodes in the connected component
+        for i in cc:
+            recursive_local_expand({i}, set(G.neighbors(i)), {i}, results, max_size)
 
-        excluded = set()
-        for i in G:
-            excluded.add(i)
-            recursive_local_expand({i}, set(G.neighbors(i)) - excluded, excluded, results, max_size)
-
-    results.sort(key=len)
-    results = [tuple(x) for x in results]
-    return results
+    return [tuple(x) for x in sorted(results, key=len)]
 
 #!####### MY NEW FUNCTIONS #########
 def flatten(lst):
@@ -311,63 +307,88 @@ def break_bonds(mol, bonds):
         eMol.RemoveBond(bond[0], bond[1])
 
         # Add a dummy atoms to replace the vacant positions
-        dummy_atom = Chem.Atom(0)  # 0 represents a dummy atom
+        dummy_atom = Chem.Atom(0)   # 0 represents a dummy atom
         dummy_atom.SetAtomicNum(0)  # Set atomic number to 0 for a dummy atom
         dummy_atom_idx = eMol.AddAtom(dummy_atom)
         eMol.AddBond(bond[0], dummy_atom_idx, bond_order)
 
-        dummy_atom = Chem.Atom(0)  # 0 represents a dummy atom
+        dummy_atom = Chem.Atom(0)   # 0 represents a dummy atom
         dummy_atom.SetAtomicNum(0)  # Set atomic number to 0 for a dummy atom
         dummy_atom_idx = eMol.AddAtom(dummy_atom)
         eMol.AddBond(bond[1], dummy_atom_idx, bond_order)
 
     res = eMol.GetMol()
     Chem.SanitizeMol(res)
-    # del mol.__sssAtoms  # Delete substructure highlighting
     return res
 #!####### ---------------- #########
 
 
-def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connectivity=False, verbose=False):
+def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connectivity=False, method='default'):
     """
     Parameters:
         maxBlocks: The maximum number of building blocks that the fragments contain
-        maxSR (int): rings containing a number of atoms equal to or less than this value will not be fragmented
+        maxSR: rings containing a number of atoms equal to or less than this value will not be fragmented
     """
     mol = add_atom_indices(mol)
 
-    # #! The original script used BRICS as a base for fragmentation
-    # bonds = list(searchBonds(mol, maxSR=maxSR))
-    # blocks = list(Chem.GetMolFrags(BreakBRICSBonds(mol, bonds, keep_connectivity=False), asMols=True))
-    # #! Adapt for transition to the new fragmentation method
-    # labelled_bonds = bonds  # Retain L-labels for BRICS fragmentation
-    # bonds = [x[0] for x in bonds]  # Remove L-labels to prepare for new method
-    # #! ------------------------------------ #
+    if method == 'BRICS':
+        #! Original code using BRICS as a fragmentation algorithm
+        bonds = list(searchBonds(mol, maxSR=maxSR))
+        blocks = list(Chem.GetMolFrags(BreakBRICSBonds(mol, bonds, keep_connectivity=False), asMols=True))
+        labelled_bonds = bonds  # Retain L-labels for BRICS fragmentation
+        bonds = [x[0] for x in bonds]  # Remove L-labels to prepare for new method
+        #! ------------------------------------ #
+    else:
+        #! My version uses the following algorithm
+        rings = mol.GetRingInfo().AtomRings()
+        bond_matrix = Chem.GetAdjacencyMatrix(mol)
 
-    #! My version is with the following code
-    rings = mol.GetRingInfo().AtomRings()
-    bond_matrix = Chem.GetAdjacencyMatrix(mol)
+        # Find pairs of fused rings
+        pairs_fused_rings = []
+        for i in range(len(rings)):
+            for j in range(i + 1, len(rings)):
+                if set(rings[i]) & set(rings[j]):
+                    pairs_fused_rings.append((rings[i], rings[j]))
 
-    # Find fused rings
-    fused_rings = []
-    for i in range(len(rings)):
-        for j in range(i + 1, len(rings)):
-            if set(rings[i]) & set(rings[j]):
-                fused_rings.append((rings[i], rings[j]))
+        unfused_rings = [x for x in rings if x not in flatten(pairs_fused_rings)]
+        fused_rings = join_sets_with_common_elements(pairs_fused_rings)
+        new_rings = unfused_rings + fused_rings
 
-    unfused_rings = [x for x in rings if x not in flatten(fused_rings)]
-    fused_rings = join_sets_with_common_elements(fused_rings)
-    new_rings = unfused_rings + fused_rings
+        # Find bonds between new rings
+        bonds = set()
+        for ring in new_rings:
+            for atom1 in ring:
+                for atom2 in range(len(mol.GetAtoms())):
+                    if bond_matrix[atom1, atom2] == 1 and atom2 not in ring:
+                        bonds.add(tuple(sorted((atom1, atom2))))
+        
+        # Do not break C==O bonds
+        acylic = []
+        for bond in bonds:
+            a1 = mol.GetAtomWithIdx(bond[0]).GetSymbol()
+            a2 = mol.GetAtomWithIdx(bond[1]).GetSymbol()
+            b = mol.GetBondBetweenAtoms(bond[0], bond[1]).GetBondType()
+            if a1 == 'C' and a2 == 'O' and b == Chem.rdchem.BondType.DOUBLE:
+                acylic.append(bond)
+        bonds = [b for b in bonds if b not in acylic]
 
-    bonds = set()
-    for ring in new_rings:
-        for atom1 in ring:
-            for atom2 in range(len(mol.GetAtoms())):
-                if bond_matrix[atom1, atom2] == 1 and atom2 not in ring:
-                    bonds.add(tuple(sorted((atom1, atom2))))
+        #? The following code gives different results with CCIs 9B7 and 6A4 
+        # # Check presence of the pattern P-O-C 
+        # for atom in mol.GetAtoms():
+        #     if atom.GetSymbol() == 'P':
+        #         for neigh1 in atom.GetNeighbors():
+        #             if neigh1.GetSymbol() == 'O':
+        #                 PO_pair = tuple(sorted((atom.GetIdx(), neigh1.GetIdx())))
+        #                 if PO_pair in bonds:
+        #                     bonds.remove(PO_pair)  # Remove P-O from bonds to keep intact the phosphates
+        #                 for neigh2 in neigh1.GetNeighbors():
+        #                     if neigh2.GetSymbol() == 'C':
+        #                         CO_pair = tuple(sorted((neigh1.GetIdx(), neigh2.GetIdx())))
+        #                         bonds.add(CO_pair)  # Add (P-O)-C bonds
 
-    blocks = list(Chem.GetMolFrags(break_bonds(mol, bonds), asMols=True))
-    #! ------------------------------------ #
+        # Get molecular fragments (blocks)
+        blocks = list(Chem.GetMolFrags(break_bonds(mol, bonds), asMols=True))
+        #! ------------------------------------ #
 
     for block in blocks:
         block_smi = Chem.MolToSmiles(block)
@@ -375,25 +396,34 @@ def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connect
         nRings = [list(x) for x in block.GetRingInfo().AtomRings()]
         nAtomsRings = [len(x) for x in nRings]
 
-        # Classify blocks based on structural type
+        # Classify blocks based on structural type  #TODO: add Decorator type
         if nAtomsRings:
-            if nAtomsRings == [3] or nAtomsRings == [4]: type = 'T'  # Small ring (cyclopropane and -butane)
-            else: type = 'R'  # Ring 
-        elif 'P' in block_smi: type = 'P'  # Phosphate block
-        elif block_smi.count('*') > 1: type = 'L'  # Linker
-        elif block_smi.count('*') == 1 and nAtoms >= 4: type = 'S'  # Side-chain
-        else: type = 'X'  # Substituent
+            if nAtomsRings == [3] or nAtomsRings == [4]: type = 'T'  # Small rings (cyclopropane and -butane)
+            else: type = 'R'  # Rings
+        elif 'P' in block_smi: type = 'P'  # Phosphate blocks
+        elif block_smi.count('*') > 1: type = 'L'  # Linkers
+        elif block_smi.count('*') == 1 and nAtoms >= 4: type = 'S'  # Side-chains
+        else: type = 'X'  # Substituents
 
         # Assign block properties 
         block.SetProp('Type', type)
         block.SetProp('Smiles', block_smi)
-        # name = chr(65 + i)
+
+    #! No recomposition
+    if maxBlocks == 1 or not mol.GetRingInfo().AtomRings():  # Skip molecules with no rings
+        if not keep_AtomMapNumber:
+            [remove_atom_indices(block) for block in blocks]
+        return blocks
+        print('h')
+    elif maxBlocks > len(blocks):
+        maxBlocks = len(blocks)
 
     #! Graph-based implementation
-    # Get index of atoms in each block 
+    # Create a dictionary of {block: index}
     block_index = {tuple([a.GetAtomMapNum() for a in block.GetAtoms() if a.GetSymbol()!='*']): i
                    for i, block in enumerate(blocks)}
 
+    # Create a dictionary of {bond: block}
     bond_block = {}
     for bond in bonds:
         ba1, ba2 = bond
@@ -401,7 +431,7 @@ def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connect
             if ba1 in block:
                 bond_block[ba1] = block
             if ba2 in block:
-                bond_block[ba2]=block
+                bond_block[ba2] = block
     
     G = nx.Graph()
     # Add nodes with attributes
@@ -413,31 +443,28 @@ def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connect
         node1, node2 = block_index[bond_block[ba1]], block_index[bond_block[ba2]]
         G.add_edge(node1, node2, bond=bond)
 
+    # pos_nodes = nx.spring_layout(G)
+    # pos_attrs = {}
+    # for node, coords in pos_nodes.items():
+    #     pos_attrs[node] = (coords[0], coords[1]+.09)
     # nx.draw_networkx(G)
     # import matplotlib.pyplot as plt
     # plt.show()
 
-    pos_nodes = nx.spring_layout(G)
-    pos_attrs = {}
-    for node, coords in pos_nodes.items():
-        pos_attrs[node] = (coords[0], coords[1]+.09)
-
-    # Get all connected induced subgraph (CIS) and build a type dictionary
+    # Get all connected induced subgraphs (CISs) and build a type dictionary
     all_cis = get_all_connected_subgraphs(G)
     all_cis = [x for x in all_cis if len(x) <= maxBlocks]
     node_attrs = nx.get_node_attributes(G, 'type')
     all_cis_dict = {cis: ''.join(map(node_attrs.get, cis)) for cis in all_cis}
     all_cis_dict = {tuple(sorted(k)): ''.join(sorted(v)) for k, v in all_cis_dict.items()}
 
-    # Drop disallowed combinations
+    # Drop disallowed type combinations
     for cis, types in list(all_cis_dict.items()):
         if types.count('R') >= 2: del all_cis_dict[cis]            # Rings combinations
-        elif 'R' in types and 'S' in types: del all_cis_dict[cis]  # Ring/small-ring combinations
-        elif 'R' in types and 'L' in types: del all_cis_dict[cis]  # Ring/linker combinations
+        elif 'R' in types and 'S' in types: del all_cis_dict[cis]  # Ring/side-chain combinations
         elif 'R' in types and 'L' in types: del all_cis_dict[cis]  # Ring/linker combinations
         elif 'P' in types and types != 'P': del all_cis_dict[cis]  # Phosphates joined with anything
         elif 'T' in types and types != 'T': del all_cis_dict[cis]  # Small-rings joined with anything
-    if verbose: print(all_cis_dict)
 
     # from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
     # for block in blocks:
@@ -445,55 +472,114 @@ def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connect
     #     #     print(bond.GetStereo())
     #     print(list(EnumerateStereoisomers(block)))
 
-    #! Fall back to classic BRICS fragmentation
-    if maxBlocks == 1 or not mol.GetRingInfo().AtomRings():  # Do not recompose molecules with no rings
-        if not keep_AtomMapNumber:
-            remove_atom_indices(mol)
-            for block in blocks: remove_atom_indices(block)
-            return blocks
-    elif maxBlocks > len(blocks):
-        maxBlocks = len(blocks)
-
     # Keep unique combinations of fragments
     keep_cis_dict = {}
     nodes_to_add = list(range(len(blocks)))  # All the original single fragments
-    for cis, types in list(all_cis_dict.items())[::-1]:  # Start from longest cis
+    for cis, types in list(all_cis_dict.items())[::-1]:  # Start from longest CIS
         if all(n in nodes_to_add for n in cis):
             keep_cis_dict[cis] = ''.join(x for x in types)
             nodes_to_add = [x for x in nodes_to_add if x not in cis]
     keep_cis_dict = dict(sorted(keep_cis_dict.items()))
 
+    # Get edges between CISs to keep
     edges_to_break = list(G.edges())
     for edge in G.edges():
-        for node in keep_cis_dict.keys():
-            if set(edge).issubset(node):
+        for unseparable_nodes in keep_cis_dict.keys():
+            if set(edge).issubset(unseparable_nodes):
                 edges_to_break.remove(edge)
 
     if not edges_to_break:
         mol.SetProp('Type', 'U')  # Unique fragment
-        if not keep_AtomMapNumber: remove_atom_indices(mol)
+        if not keep_AtomMapNumber:
+            remove_atom_indices(mol)
         return [mol]
-    
-    bonds_to_break = [G[e[0]][e[1]]['bond'] for e in edges_to_break]
 
-    #! BRICS method
-    # bonds_to_break = [b for b in labelled_bonds for x in bonds_to_break if x in b]
-    # new_blocks = list(Chem.GetMolFrags(BreakBRICSBonds(mol, bonds_to_break, keep_connectivity=keep_connectivity), asMols=True))
+    if method == 'BRICS':
+        bonds_to_break = [b for b in labelled_bonds for x in bonds_to_break if x in b]
+        new_blocks = list(Chem.GetMolFrags(BreakBRICSBonds(mol, bonds_to_break, keep_connectivity=keep_connectivity), asMols=True))
+    else:
+        # Convert breakable edges to bonds
+        bonds_to_break = [G[e[0]][e[1]]['bond'] for e in edges_to_break]
+        new_blocks = list(Chem.GetMolFrags(break_bonds(mol, bonds_to_break), asMols=True))
 
-    #! New method
-    new_blocks = list(Chem.GetMolFrags(break_bonds(mol, bonds_to_break), asMols=True))
+    #NOTE: The fragments created so far retain the original indices (idx)
+    #> of the parent mol. The dummy atoms are added to the broken molecule
+    #> and for this reason their indices follows those of the heavy atoms.
+    #> This unordered indexing may cause problems, especially when mapping
+    #> atom numbers between different mols. For this reason, it is safer
+    #> to canonicalize the smiles an reconstrunct the fragment from it.  
+    copy_blocks = [remove_atom_indices(deepcopy(x)) for x in new_blocks]
+    copy_blocks = [Chem.MolFromSmiles(Chem.MolToSmiles(x)) for x in copy_blocks]
 
-    for block, type in zip(new_blocks, keep_cis_dict.values()):
+    # Project the original map num. on the newly indexed blocks
+    atom_map_numbers = [[a.GetAtomMapNum() for a in block.GetAtoms()] for block in new_blocks]
+    matches = [p.GetSubstructMatch(q) for p, q in zip(new_blocks, copy_blocks)]
+    for block, match, mapnum in zip(copy_blocks, matches, atom_map_numbers):
+        for i, m in enumerate(match):
+            atom = block.GetAtomWithIdx(i)
+            atom.SetAtomMapNum(mapnum[m])
+
+    # Add fragment type to blocks
+    for block, type in zip(copy_blocks, keep_cis_dict.values()):
         block.SetProp('Type', type)
+        # Reset coordinates for display
+        rdDepictor.Compute2DCoords(block)
+        rdDepictor.StraightenDepiction(block)
     
     # Remove original ligand atom numbering
     if not keep_AtomMapNumber:
-        remove_atom_indices(mol)
-        for block in new_blocks:
+        for block in copy_blocks:
             remove_atom_indices(block)
+        remove_atom_indices(mol)
 
-    # for block in new_blocks:
-    #     for bond in block.GetBonds():
-    #         print(bond.GetStereo())
+    return copy_blocks
 
-    return new_blocks
+from tools import general_methods as GenMtd
+def remove_NIG(mol, interacting_atoms):
+    """ NIG = Non-Interacting Groups """
+    K = Chem.MolFromSmiles('[99*]'); D = Chem.MolFromSmiles('*')
+    try:
+        # Fragment molecule
+        cmol = deepcopy(mol)
+        ring_atoms = sorted(set(flatten(cmol.GetRingInfo().AtomRings())), reverse=True)
+        qmol = GenMtd.replace_dummies(cmol)  # Remove dummies if any
+        map = list(cmol.GetSubstructMatch(qmol))
+        blocks = GraphDecomp(qmol, maxBlocks=1, keep_AtomMapNumber=True)
+
+        if len(blocks) > 1:
+            # Look for decorative substituent groups
+            decorative_Xs = set()
+            for block in blocks:
+                # Keep acyl oxygen attached to rings  #TODO: This should be implemented inside GraphDecomp!
+                # if Chem.MolToSmarts(remove_atom_indices(block)) in ['[#0]=[#8]', '[#8]=[#0]']:
+                #     continue
+                indices = [a.GetAtomMapNum() for a in block.GetAtoms() if a.GetSymbol()!='*']
+                mapped_indices = sorted([map[x] for x in indices], reverse=True)
+                if mapped_indices != ring_atoms:
+                    decorative_Xs.add(tuple(mapped_indices))
+
+            # Keep only non-interacting groups
+            decorative_Xs = [x for x in decorative_Xs if not set(x).intersection(set(interacting_atoms))]
+            decorative_Xs = sorted(set(flatten(decorative_Xs)), reverse=True)
+
+            rwm = Chem.RWMol(cmol)
+            for idx in decorative_Xs:
+                neighs = [neigh.GetIdx() for neigh in cmol.GetAtomWithIdx(idx).GetNeighbors()]
+                if set(neighs).intersection(set(ring_atoms)):
+                    # Atoms directly bonded to ring
+                    atomr = Chem.Atom(0)
+                    atomr.SetIsotope(99)
+                    atomr.SetNoImplicit(True)
+                    rwm.ReplaceAtom(idx, atomr)
+                else:
+                    rwm.RemoveAtom(idx)
+            new_mol = rwm.GetMol()
+            new_mol = Chem.RemoveHs(new_mol)
+            Chem.SanitizeMol(new_mol)
+            new_mol = Chem.ReplaceSubstructs(new_mol, K, D, replaceAll=True)[0]
+            return Chem.MolToSmiles(new_mol)
+        else:
+            raise Exception
+    except Exception as e:
+        # print(e)
+        return Chem.MolToSmiles(mol)

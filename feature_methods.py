@@ -78,9 +78,9 @@ module_dict = {
             }
 
 def calc_descriptors(mols, descriptor_list=None):
-    """@ Maybe subdivide calculation into chunks of n descriptors
-    and write (append) the output file by chunks. This may save memory
-    and speed up the process. """
+    #TODO: Maybe subdivide calculation into chunks of n descriptors
+    #TODO: and write (append) the output file by chunks. This may save memory
+    #TODO: and speed up the process
     global module_dict
 
     # Register all descriptors
