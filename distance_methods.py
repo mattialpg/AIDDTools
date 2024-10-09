@@ -426,13 +426,3 @@ def rdkit_simmatr(FPs_list, metr='Tani'):
         simmatr[i, :i] = sim
         simmatr[:i, i] = sim
     return simmatr
-
-# Plot heatmap
-import matplotlib.pyplot as plt
-import seaborn as sns
-def plot_heatmap(similarity_matrix, savename=None):
-    fig, ax = plt.subplots()
-    ax = sns.heatmap(similarity_matrix, cmap='YlGnBu', square=True)
-    plt.axis('off')
-    if savename: plt.savefig(savename, dpi=300, bbox_inches='tight')
-    else: plt.show()

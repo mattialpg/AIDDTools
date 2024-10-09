@@ -9,60 +9,145 @@ import json
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-import time
+import os, time
 import asyncio
 
 #!----------------- PubChem --------------------#
 
-def background(f):
-    def wrapped(*args, **kwargs):
-        return asyncio.get_event_loop().run_in_executor(None, f, *args, **kwargs)
-    return wrapped
+# def background(f):
+#     def wrapped(*args, **kwargs):
+#         return asyncio.get_event_loop().run_in_executor(None, f, *args, **kwargs)
+#     return wrapped
 
-# @background
-def download_compound(identifier, namespace='cid', output_dir='.'):
-    try:
-        url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/{namespace.lower()}/{identifier}/JSON'
-        resp = requests.get(url)
-        if namespace.lower() == 'cid':
-            cid = identifier
-        elif namespace.lower() == 'smiles':
-            cid = resp.json()['PC_Compounds'][0]['id']['id']['cid']
-
-        with open(f"{output_dir}/{cid}.comp", 'w') as f:
-            f.write(json.dumps(resp.json(), indent=1))
-    except Exception as exc:
-        print(exc)
-    return
-
-def get_compound(identifier, namespace='cid'):
+def get_compound(entry, server, dbdir, verbose=False):
     """
-    namespace: [cid, name, smiles, sdf, inchi, inchikey, formula]
-    USAGE:
-        cpds = [PubMtd.get_compound(x) for x in CID_list]
-        cols = ['cid', 'ISOSMILES', 'InChIKey', 'IUPAC_NAME', 'FORMULA', 'MW', 'xLogP']
-        df_cpds = pd.DataFrame(cpds, columns=cols)
-
+        Entry is in the format 'namespace:id' (e.g. 'rc:RC00304')
+        Parse local file or get from the server
     """
-    try:
-        identifier = identifier.replace(' ', '%20') if namespace=='name' else identifier
-        url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/{namespace.lower()}/{identifier}/JSON'
-        resp = requests.get(url)
-        comp = pcp.Compound(resp.json()['PC_Compounds'][0])
-        data = [str(comp.cid), comp.isomeric_smiles, comp.inchikey, comp.iupac_name,
-                comp.molecular_formula, float(comp.molecular_weight), comp.xlogp]
-        return data  #TODO: This should be a dictionary!!
-    except Exception as exc:
-        return [np.nan*7]
+    namespace, identifier = entry.split(':')
+    filename = f"{identifier}.{namespace}"
+    file_path = f"{dbdir}/{filename}"
 
-def download_taxonomy(cid, output_dir):
+    not_found = []
+
+    if server == 'pubchem':
+        """
+            namespace: [cid, name, smiles, sdf, inchi, inchikey, formula]
+        """
+        if not os.path.exists(file_path) or namespace != 'cid':
+            try:
+                if verbose: print('Downloading file...')
+                url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/{namespace}/{identifier}/JSON'
+                resp = requests.get(url)
+                cid = resp.json()['PC_Compounds'][0]['id']['id']['cid']
+                with open(f"{dbdir}/{cid}.cid", 'w') as f:
+                    f.write(json.dumps(resp.json(), indent=1))
+            except:
+                not_found.append(entry)
+                return {}
+
+        if verbose: print('Reading file...')
+        content = json.load(open(f"{dbdir}/{cid}.cid", 'r'))
+        comp = pcp.Compound(content['PC_Compounds'][0])
+        dict_data = {'cid': str(comp.cid),
+                     'isomeric_smiles': comp.isomeric_smiles,
+                     'inchikey': comp.inchikey,
+                     'iupac_name': comp.iupac_name,
+                     'molecular_formula': comp.molecular_formula,
+                     'molecular_weight': comp.molecular_weight,
+                     'xlogp': comp.xlogp}
+        return dict_data
+
+    # elif server == 'kegg':
+    #     singleton = KEGGSingleton()  # Singleton instance
+    #     kegg = singleton.kegg        # Access KEGG instance
+    #     rest = singleton.rest        # Access REST instance
+
+    #     try:
+    #         with open(f"{dbdir}/{filename}", 'r') as text:
+    #             dict_data = kegg.parse(text.read())
+    #         if verbose: print('Reading file...')
+    #     except:  # Download from server
+    #         kegg_entry = rest.kegg_get(entry).read()
+    #         with open(f"{dbdir}/{filename}", 'w', encoding='utf-8') as file:
+    #             file.write(kegg_entry)
+    #             dict_data = kegg.parse(kegg_entry)
+    #         if verbose: print('Downloading file...')
+    #     return dict_data
+
+    if not_found:
+        with open(f"{dbdir}/not_found.txt", 'r') as f:
+            lines = f.readlines()
+            lines = set(lines + not_found)
+        with open(f"{dbdir}/not_found.txt", 'a') as f:
+            f.write('\n'.join(lines))
+    
+
+# # @background
+# def download_compound(identifier, namespace='cid', output_dir='.'):
+#     """
+#     namespace: [cid, name, smiles, sdf, inchi, inchikey, formula]
+#     """
+#     try:
+#         url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/{namespace.lower()}/{identifier}/JSON'
+#         resp = requests.get(url)
+#         if namespace.lower() == 'cid':
+#             cid = identifier
+#         elif namespace.lower() == 'smiles':
+#             cid = resp.json()['PC_Compounds'][0]['id']['id']['cid']
+
+#         with open(f"{output_dir}/{cid}.comp", 'w') as f:
+#             f.write(json.dumps(resp.json(), indent=1))
+#     except Exception as exc:
+#         print(exc)
+#     return
+
+# def get_compound(identifier, namespace='cid', output_dir='.'):
+#     """
+#     namespace: [cid, name, smiles, sdf, inchi, inchikey, formula]
+#     USAGE:
+#         cpds = [PubMtd.get_compound(x) for x in CID_list]
+#         cols = ['cid', 'ISOSMILES', 'InChIKey', 'IUPAC_NAME', 'FORMULA', 'MW', 'xLogP']
+#         df_cpds = pd.DataFrame(cpds, columns=cols)
+#     """
+#         try:
+#             identifier = identifier.replace(' ', '%20') if namespace=='name' else identifier
+#             url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/{namespace.lower()}/{identifier}/JSON'
+#             resp = requests.get(url)
+#             comp = pcp.Compound(resp.json()['PC_Compounds'][0])
+#             data = [str(comp.cid), comp.isomeric_smiles, comp.inchikey, comp.iupac_name,
+#                     comp.molecular_formula, float(comp.molecular_weight), comp.xlogp]
+#             return data  #TODO: This should be a dictionary!!
+#         except Exception as exc:
+#             return [np.nan*7]
+
+def get_taxonomy(cid, output_dir=None):
     try:
-        cid = str(cid)
-        url = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?infmt=json&outfmt=csv&query={"download":"*","collection":"consolidatedcompoundtaxonomy","where":{"ands":[{"cid":"%s"}]},"order":["cid,asc"]}' % cid
-        urlretrieve(url, f"{output_dir}/{cid}.taxonomy")
+        if output_dir:
+            sdq = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?infmt=json&outfmt=csv&query='
+            url = sdq + '{"download":"*","collection":"consolidatedcompoundtaxonomy","where":{"ands":\
+                         [{"cid":"%s"}]},"order":["cid,asc"],"start":1,"limit":10000}' % cid
+            urlretrieve(url, f"{output_dir}/{cid}.taxonomy")
+        else:
+            sdq = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?infmt=json&outfmt=json&query='
+            url = sdq + '{"select":"*","collection":"consolidatedcompoundtaxonomy","where":{"ands":\
+                         [{"cid":"%s"}]},"order":["cid,asc"],"start":1,"limit":10000}' % cid
+            resp = requests.get(url)
+            return resp.json()['SDQOutputSet'][0]['rows']
     except Exception as exc:
         print(f"{cid}: {exc}")
     return
+
+
+def get_from_taxid(taxid):
+    try:
+        sdq = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?infmt=json&outfmt=json&query='
+        url = sdq + '{"select":"*","collection":"consolidatedcompoundtaxonomy","where":{"ands":[{"taxid":"%s"}]},"order":["cid,asc"]}' % taxid
+        resp = requests.get(url)
+        return resp.json()['SDQOutputSet'][0]['rows']
+    except Exception:
+        return {}
+
 
 def download_info(cid, output_dir):
     try:
@@ -154,29 +239,6 @@ class KEGGSingleton:
             cls.kegg = KEGG(*args, **kwargs)  # Instantiate KEGG once
             cls.rest = REST  # Instantiate REST once
         return cls._instance
-
-# Use it inside your function
-def read_or_get(dbentry, dbdir, verbose=False):
-    """
-    dbentry is in the format 'namespace:id' (e.g. 'rc:RC00304')
-    Parse local file or get from the server
-    """
-    singleton = KEGGSingleton()  # Singleton instance
-    kegg = singleton.kegg         # Access KEGG instance
-    rest = singleton.rest         # Access REST instance
-
-    filename = '.'.join(dbentry.split(':')[::-1])
-    try:
-        with open(f"{dbdir}/{filename}", 'r') as text:
-            dict_data = kegg.parse(text.read())
-        if verbose: print('Reading file...')
-    except:
-        kegg_entry = rest.kegg_get(dbentry).read()
-        with open(f"{dbdir}/{filename}", 'w', encoding='utf-8') as file:
-            file.write(kegg_entry)
-            dict_data = kegg.parse(kegg_entry)
-        if verbose: print('Downloading file...')
-    return dict_data
 
 #!----------------- Others --------------------#
 

@@ -98,10 +98,10 @@ _cache_sim = {}
 def get_similarity(fp1, fp2, method='morgan', nBits=2048):
     """
     Calculate similarity between two fingerprints based on the specified method.
-    More info on fps at: https://github.com/cosconatilab/PyRMD/blob/main/PyRMD_v1.03.py
+    More info at: https://github.com/cosconatilab/PyRMD/blob/main/PyRMD_v1.03.py
     """
 
-    if method in ['morgan', 'maccs', 'rdkit']:
+    if method in ['morgan2', 'maccs', 'rdkit']:
         sim = DataStructs.FingerprintSimilarity(fp1, fp2)
 
     elif method == 'map4':
@@ -124,35 +124,32 @@ def get_similarity(fp1, fp2, method='morgan', nBits=2048):
     return round(sim, 4)
 
 
-# def get_simmatr(fps_list, method='morgan2', nBits=2048):
-#     """
-#     fps_list: list of explicit bit vectors (SparseBitVects not supported)
-#     More info at: https://github.com/cosconatilab/PyRMD/blob/main/PyRMD_v1.03.py
-#     """
-    
-#     # map4 = MAP4Calculator(nBits)
-#     enc = tm.Minhash(nBits)
-#     mhfp = Chem.rdMHFPFingerprint.MHFPEncoder(nBits)
+def get_simmatrix(fps_list, method='morgan2', nBits=2048):
+    n = len(fps_list)
+    similarity_matrix = np.zeros((n, n))
 
-#     simmatr = np.zeros((len(fps_list), len(fps_list)))
-#     for i, fp1 in enumerate(fps_list):
-#         for j, fp2 in enumerate(fps_list):
-#             if method == 'map4':
-#                 simmatr[i,j] = 1 - enc.get_distance(fp1, fp2)
-#             elif method == 'mhfp':
-#                 simmatr[i,j] = mhfp.Distance(fp1, fp2)
-#             else:
-#                 simmatr[i,j] = DataStructs.FingerprintSimilarity(fp1, fp2)
-#     # simvect = GetTanimotoSimMat(fps_list)  # 1-D array containing the lower triangle elements of the distance matrix
-#     # simmatr = vec2matr(simvect)
-#     # similarity_matr = similarity_matr.sort_values(by=0, axis=0, ascending=False).sort_values(by=0, axis=1, ascending=False)
-#     return simmatr
+    for i in range(n):
+        for j in range(i, n):  # Only compute upper triangle
+            similarity = get_similarity(fps_list[i], fps_list[j], method=method, nBits=nBits)
+            similarity_matrix[i, j] = similarity
+            similarity_matrix[j, i] = similarity  # Mirror the value for symmetry
 
-    # similarities = np.zeros((nfgrps, nfgrps))
+    return similarity_matrix
 
-    # for i in range(1, nfgrps):
-    #         similarity = DataStructs.BulkTanimotoSimilarity(fgrps[i], fgrps[:i])
-    #         similarities[i, :i] = similarity
-    #         similarities[:i, i] = similarity
 
-    # return similarities
+# Plot heatmap
+import plotly.graph_objects as go
+import plotly.express as px
+def plot_heatmap(similarity_matrix, labels, savename=None):
+    fig = px.imshow(similarity_matrix)#, color_continuous_scale='haline')
+    fig.update_layout(height=500, width=500,
+                    margin=dict(l=65, r=100, b=0, t=0),
+                    coloraxis_colorbar=dict(len=0.73, thickness=20),
+                    paper_bgcolor="#2d3035",
+                    font=dict(color='#8a8d93'))
+    fig.update_xaxes(tickvals=np.arange(len(labels)), ticktext=labels,
+                     color="#2d3035")
+    fig.update_yaxes(tickvals=np.arange(len(labels)), ticktext=labels,
+                     color="#2d3035")
+    fig.show()
+    # fig.write_html('/tmp/tmp.html')
