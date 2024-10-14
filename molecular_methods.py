@@ -1,157 +1,32 @@
+"""
+This module provides a set of utilities for molecular manipulation and visualization.
+"""
 import warnings
-warnings.simplefilter('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=DeprecationWarning)
-
-import os, sys, glob, subprocess, math, shutil
+import math
 import numpy as np
 import pandas as pd
+
 from natsort import natsorted, natsort_keygen
-from itertools import combinations
 from copy import deepcopy
+from itertools import combinations
+
+from rdkit import Chem
+from rdkit.Chem import Draw, AllChem, rdDepictor
+# from openmm.app import PDBFile
+# from pdbfixer import PDBFixer
+# from openbabel import openbabel
 
 # import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
-from rdkit import Chem
-from rdkit.Chem import Draw, AllChem, rdDepictor
-# from pdbfixer import PDBFixer
-from openmm.app import PDBFile
-# from openbabel import openbabel
+# from tools import GraphRecomp
 
-from tools import general_methods as GenMtd
-from tools import utils
-from tools import GraphRecomp
-
-
-## Comment miniconda3/envs/my-chem/Lib/site-packages/prody/proteins/pdbfile.py, lines 314-316
-## to hide log message when using prody.parsePDB.
-
-# import time
-# start_time = time.time()
-# print("--- %s seconds ---" % (time.time() - start_time))
-
-def prepare_rec(pdblist, ext='pdb'):
-    pdblist = [pdblist] if isinstance(pdblist, str) else pdblist
-    # pdblist = glob.glob1(os.getcwd(), '*receptor.pdb')
-    
-    # Fix PDB
-    for pdb in pdblist:
-        fixer = PDBFixer(pdb)
-        fixer.findMissingResidues()
-        fixer.findNonstandardResidues()
-        fixer.replaceNonstandardResidues()
-        fixer.removeHeterogens(True)
-        fixer.findMissingAtoms()
-        fixer.addMissingAtoms()
-        fixer.addMissingHydrogens(7.4)
-        PDBFile.writeFile(fixer.topology, fixer.positions, open(pdb.replace('.pdb', '_fix.pdb'), 'w'))
-
-    # Convert to pdbqt
-    if ext == 'pdbqt':
-        fixlist = glob.glob1(os.getcwd(), '*fix.pdb')
-        for fix in fixlist:
-            obconversion = openbabel.OBConversion()
-            obconversion.SetInAndOutFormats('pdb', 'pdbqt')
-            mol = openbabel.OBMol()
-            fixfile = fix.replace('pdb', 'pdbqt')
-            obconversion.ReadFile(mol, fix)
-            obconversion.WriteFile(mol, fixfile)
-
-            xfile = fix + 'qt'
-            with open(xfile, 'r') as f:
-                lines = f.readlines()
-            with open(xfile.replace('_fix', ''), 'w') as f:
-                for line in lines:
-                    if 'ATOM' in line:
-                        f.write(line)
-            # os.remove(fix, fixfile)
-    return
-
-
-from scipy.spatial.distance import pdist
-from rdkit.Chem import rdDistGeom
-def dist_between_dummies(mol, numConfs=100, replace_with=None):
-    try:
-        mol_copy = deepcopy(mol)
-        dummies = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetSymbol() == '*']
-        a, b = dummies[0], dummies[1]
-
-        if not replace_with:
-            dummies = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetSymbol() == '*']
-            mol_copy = GenMtd.replace_dummies(mol_copy, 'C')
-            mol_copy = Chem.AddHs(mol_copy, addCoords=True)
-        else:
-            mol_copy = GraphRecomp.join_fragments([mol_copy], [Chem.MolFromSmiles(replace_with)])
-            dummies = [a.GetIdx() for a in mol_copy.GetAtoms()\
-                       if a.GetProp('_newbond') == 'True' and a.GetProp('_label') == 'L']
-    
-        if len(dummies) < 2:
-            print('Number of dummy atoms less than 2')
-            raise Exception
-
-        # Generate conformers
-        confids = AllChem.EmbedMultipleConfs(mol_copy, numConfs,
-                                             useRandomCoords=True,
-                                             randomSeed=0xf00d,
-                                             maxAttempts=100,
-                                             numThreads=0)
-
-        # # Keep conformers with energy within 1 kcal from the most stable conformation
-        # energies = [tpl[1] for tpl in AllChem.MMFFOptimizeMoleculeConfs(mol_copy, numThreads=0, mmffVariant='MMFF94s')]
-        # energies = [(id, x) for id, x in enumerate(energies) if abs(x-min(energies)) >= 1]
-        # confids = [tpl[0] for tpl in energies]
-
-        # # Save conformers in an SDF file
-        # AllChem.AlignMolConformers(mol_copy)
-        # w = Chem.SDWriter('C:/Users/Idener/MEGA/DEVSHEALTH/Q1_FragLIB/confs.sdf')
-        # for confid in range(mol_copy.GetNumConformers()):
-        #     w.write(mol_copy, confId=confid)
-        # w.close()
-
-        # Formal but slower calculation
-        # dist = [rdMolTransforms.GetBondLength(conf, dummies[0], dummies[1])
-        #          for conf in mol.GetConformers()]
-    
-        # Faster alternative
-        dist_dict = {}
-        for dummy_pair in combinations(dummies, 2):
-            dists = []
-            for confid in confids:
-                a, b = dummy_pair[0], dummy_pair[1]
-                coord_0 = np.array(mol_copy.GetConformer(confid).GetAtomPosition(a))
-                coord_1 = np.array(mol_copy.GetConformer(confid).GetAtomPosition(b))
-                dists.append(pdist(np.vstack((coord_0, coord_1))).round(3))
-                dist_dict[(a, b)] = (float(min(dists)), float(max(dists)))
-        
-        # Create a dictionary to map old to new dummy atom numbers
-        if replace_with:
-            dummy_dict = {}
-            for dummy in dummies:
-                neigh = mol_copy.GetAtomWithIdx(dummy).GetNeighbors()
-                neigh = [n for n in neigh if n.GetProp('_label') == 'P']
-                new_dummy = tuple([int(x) for x in neigh[0].GetProp('_neigh').split('_')])
-                if new_dummy not in dummy_dict:
-                    dummy_dict[new_dummy] = []
-                dummy_dict[new_dummy].append(dummy)
-            dummy_dict = {tuple(k): v for v, k in dummy_dict.items()}
-            replacement_dict = {}
-            for keys_tuple, values_tuple in dummy_dict.items():
-                for i, key in enumerate(keys_tuple):
-                    replacement_dict[key] = values_tuple[i]
-
-            # Get original dummy atom numbers
-            final_dict = {}
-            for keys_tuple, values_tuple in dist_dict.items():
-                replaced_keys = tuple(replacement_dict[key] for key in keys_tuple)
-                final_dict[replaced_keys] = values_tuple
-            dist_dict = final_dict
-
-        return dist_dict
-    except Exception as exc:
-        print(exc)
-        return {}
-
+# Suppress warnings
+warnings.simplefilter('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+# -------------------------------------------- #
 
 from meeko import MoleculePreparation, PDBQTWriterLegacy
 def export_mol(mol, outfile, addHs=False, verbose=False):
@@ -173,44 +48,16 @@ def export_mol(mol, outfile, addHs=False, verbose=False):
             with open(outfile, 'w') as f:
                 f.write('\n'.join(lines))
 
-        #! Alternative: sdf via rdkit > pdbqt via babel > remove sdf (vina complains)
-        # mol = Chem.AddHs(mol, addCoords=True)
-        # AllChem.EmbedMolecule(mol)
-        # fname = outfile.split('.')[0]
-        # with open(f"{fname}.sdf", 'w') as fw:
-        #     Chem.SDWriter(fw).write(mol)
-        # subprocess.run(f"obabel {fname}.sdf -opdbqt -O {fname}.pdbqt", shell=True,
-        #                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # os.remove(f"{fname}.sdf")
-
-        # # Fix dummy atom type for vina
-        # if '*' in [a.GetSymbol() for a in mol.GetAtoms()]:
-        #     with open(f"{fname}.pdbqt", 'r') as f:
-        #         lines = f.read().splitlines()
-        #         for i in range(len(lines)):
-        #             if '*' in lines[i]:
-        #                 s = list(lines[i])
-        #                 s[77] = 'A'
-        #                 lines[i] = ''.join(s)
-        #     with open(f"{fname}.pdbqt", 'w') as f:
-        #         f.write('\n'.join(lines))
-
-    
     elif 'sdf' in outfile:
-        if addHs: mol = Chem.AddHs(mol, addCoords=True)
-        AllChem.EmbedMolecule(mol)
+        if addHs:
+            mol = Chem.AddHs(mol, addCoords=True)
+        # AllChem.EmbedMolecule(mol)
         with open(outfile, 'w') as fw:
             Chem.SDWriter(fw).write(mol)
     
-    # else:
-    #     for mol in mols:
-    #         subprocess.run(['babel', lig, '-O', molfile, '-h'],
-    #                         stdout=subprocess.PIPE,
-    #                         stderr=subprocess.DEVNULL,
-    #                         text=True)
     if verbose:
         print(f"*** Succesfully exported {outfile} ***")
-    return
+        
 
 def draw_mols(mols, filename=None, align=False):
 
@@ -298,6 +145,221 @@ def draw_mols(mols, filename=None, align=False):
     # d.DrawMolecule(m1)
     # d.FinishDrawing()
     # d.WriteDrawingText("0.png")
+
+
+import py3Dmol
+def drawit(mol, confId=-1):
+    p = py3Dmol.view(width=700, height=450)
+    p.removeAllModels()
+    p.addModel(Chem.MolToMolBlock(mol, confId=confId),'sdf')
+    p.setStyle({'stick':{}})
+    p.setBackgroundColor('0xeeeeee')
+    p.zoomTo()
+    return p.show()
+
+# from ipywidgets import interact, fixed  #<-- this gives `JUPYTER_PLATFORM_DIRS=1` error
+# def drawit_slider(mol):    
+#     p = py3Dmol.view(width=700, height=450)
+#     interact(drawit, mol=fixed(mol), p=fixed(p), confId=(0, mol.GetNumConformers()-1))
+
+def drawit_bundle(mol, confIds=None):
+    p = py3Dmol.view(width=700, height=450)
+    p.removeAllModels()
+
+    if not confIds: confIds = range(mol.GetNumConformers())
+    for confId in confIds:
+        p.addModel(Chem.MolToMolBlock(mol, confId=confId), 'sdf')
+    p.setStyle({'stick':{}})
+    p.setBackgroundColor('0xeeeeee')
+    p.zoomTo()
+    return p.show()
+
+def show_atom_indices(mols, label='atomNote', prop=None):
+    "label: [atomNote, molAtomMapNumber]"
+    mol_list = [mols] if not isinstance(mols, list) else mols
+    for mol in mol_list:
+        for atom in mol.GetAtoms():
+            if prop:
+                if not atom.HasProp(prop):
+                    atom.SetProp(label, '')  # Fill prop with dumb values
+                else:
+                    atom.SetProp(label, str(atom.GetProp(prop)))
+            else:
+                atom.SetProp(label, str(atom.GetIdx()))
+
+    if not isinstance(mols, list):
+        return mol_list[0]
+    else:
+        return mol_list
+
+
+def remove_atom_indices(mols, label):
+    for mol in mols:
+        for atom in mol.GetAtoms():
+            atom.ClearProp(label)
+    return mols
+
+#TODO Check!!
+from PIL import Image
+from io import BytesIO
+def show_bond_indices(mol):
+    def show_mol(d2d, mol, legend='', highlightAtoms=[]):
+        d2d.DrawMolecule(mol,legend=legend, highlightAtoms=highlightAtoms)
+        d2d.FinishDrawing()
+        bio = BytesIO(d2d.GetDrawingText())
+        return Image.open(bio)
+
+    d2d = Draw.MolDraw2DCairo(600,400)
+    dopts = d2d.drawOptions()
+    dopts.addBondIndices = True
+    show_mol(d2d, mol)
+
+def reset_view(mol):
+    mol = deepcopy(mol)
+    # Reset coordinates for display
+    rdDepictor.Compute2DCoords(mol)
+    rdDepictor.StraightenDepiction(mol)
+    # Delete substructure highlighting
+    # del mol.__sssAtoms
+    return mol
+
+## Comment miniconda3/envs/my-chem/Lib/site-packages/prody/proteins/pdbfile.py, lines 314-316
+## to hide log message when using prody.parsePDB.
+
+# import time
+# start_time = time.time()
+# print("--- %s seconds ---" % (time.time() - start_time))
+
+def replace_dummies(mol, replace_with='H', keep_info=True):
+    mol_copy = deepcopy(mol)
+    rwMol = Chem.RWMol(mol_copy)
+
+    if keep_info:
+        for atom in mol_copy.GetAtoms():
+            atom.SetProp('_symbol', atom.GetSymbol())
+
+    dummies = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetSymbol() == '*']
+
+    # # Replace dummy atoms (this does not retain atom properties!)
+    # d = Chem.MolFromSmiles('*'); h = Chem.MolFromSmiles(replace_with)
+    # mol_copy = Chem.ReplaceSubstructs(mol_copy, d, h, replaceAll=True)[0]
+    # return mol_copy
+
+    # Replace dummy atoms and retain atom properties
+    if replace_with == 'L':
+        # Get atom type from fragmentation class
+        for atom in mol_copy.GetAtoms():
+            if atom.GetAtomicNum() == 0:
+                d = atom.GetProp('dummyLabel')
+                rwMol.ReplaceAtom(atom.GetIdx(), Chem.Atom(d))
+    elif replace_with == 'H':
+        for dummy in sorted(dummies, reverse=True):
+            # rwMol.RemoveAtom(dummy)
+            rwMol.ReplaceAtom(dummy, Chem.Atom(1))
+            # rwMol.GetAtomWithIdx(a).SetNumExplicitHs(0)
+            # Chem.AddHs(rwMol)
+    else:
+        h = Chem.GetPeriodicTable().GetAtomicNumber(replace_with)
+        for dummy in sorted(dummies, reverse=True):
+            # rwMol.ReplaceAtom(atom.GetIdx(), Chem.Atom(h))
+            rwMol.GetAtomWithIdx(dummy).SetAtomicNum(h)
+    rwMol = Chem.RemoveHs(rwMol)
+    Chem.SanitizeMol(rwMol)
+    return Chem.Mol(rwMol)
+
+
+def restore_dummies(mol):
+    rwMol = Chem.RWMol(mol)
+    for atom in mol.GetAtoms():
+        if atom.GetProp('_symbol') == '*':
+            # rwMol.GetAtomWithIdx(atom.GetIdx()).SetAtomicNum(0)
+            rwMol.ReplaceAtom(atom.GetIdx(), Chem.Atom(0))
+    return rwMol.GetMol()
+
+
+from scipy.spatial.distance import pdist
+from rdkit.Chem import rdDistGeom
+def dist_between_dummies(mol, numConfs=100, replace_with=None):
+    try:
+        mol_copy = deepcopy(mol)
+        dummies = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetSymbol() == '*']
+        a, b = dummies[0], dummies[1]
+
+        if not replace_with:
+            dummies = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetSymbol() == '*']
+            mol_copy = replace_dummies(mol_copy, 'C')
+            mol_copy = Chem.AddHs(mol_copy, addCoords=True)
+        else:
+            mol_copy = GraphRecomp.join_fragments([mol_copy], [Chem.MolFromSmiles(replace_with)])
+            dummies = [a.GetIdx() for a in mol_copy.GetAtoms()\
+                       if a.GetProp('_newbond') == 'True' and a.GetProp('_label') == 'L']
+    
+        if len(dummies) < 2:
+            print('Number of dummy atoms less than 2')
+            raise Exception
+
+        # Generate conformers
+        confids = AllChem.EmbedMultipleConfs(mol_copy, numConfs,
+                                             useRandomCoords=True,
+                                             randomSeed=0xf00d,
+                                             maxAttempts=100,
+                                             numThreads=0)
+
+        # # Keep conformers with energy within 1 kcal from the most stable conformation
+        # energies = [tpl[1] for tpl in AllChem.MMFFOptimizeMoleculeConfs(mol_copy, numThreads=0, mmffVariant='MMFF94s')]
+        # energies = [(id, x) for id, x in enumerate(energies) if abs(x-min(energies)) >= 1]
+        # confids = [tpl[0] for tpl in energies]
+
+        # # Save conformers in an SDF file
+        # AllChem.AlignMolConformers(mol_copy)
+        # w = Chem.SDWriter('C:/Users/Idener/MEGA/DEVSHEALTH/Q1_FragLIB/confs.sdf')
+        # for confid in range(mol_copy.GetNumConformers()):
+        #     w.write(mol_copy, confId=confid)
+        # w.close()
+
+        # Formal but slower calculation
+        # dist = [rdMolTransforms.GetBondLength(conf, dummies[0], dummies[1])
+        #          for conf in mol.GetConformers()]
+    
+        # Faster alternative
+        dist_dict = {}
+        for dummy_pair in combinations(dummies, 2):
+            dists = []
+            for confid in confids:
+                a, b = dummy_pair[0], dummy_pair[1]
+                coord_0 = np.array(mol_copy.GetConformer(confid).GetAtomPosition(a))
+                coord_1 = np.array(mol_copy.GetConformer(confid).GetAtomPosition(b))
+                dists.append(pdist(np.vstack((coord_0, coord_1))).round(3))
+                dist_dict[(a, b)] = (float(min(dists)), float(max(dists)))
+        
+        # Create a dictionary to map old to new dummy atom numbers
+        if replace_with:
+            dummy_dict = {}
+            for dummy in dummies:
+                neigh = mol_copy.GetAtomWithIdx(dummy).GetNeighbors()
+                neigh = [n for n in neigh if n.GetProp('_label') == 'P']
+                new_dummy = tuple([int(x) for x in neigh[0].GetProp('_neigh').split('_')])
+                if new_dummy not in dummy_dict:
+                    dummy_dict[new_dummy] = []
+                dummy_dict[new_dummy].append(dummy)
+            dummy_dict = {tuple(k): v for v, k in dummy_dict.items()}
+            replacement_dict = {}
+            for keys_tuple, values_tuple in dummy_dict.items():
+                for i, key in enumerate(keys_tuple):
+                    replacement_dict[key] = values_tuple[i]
+
+            # Get original dummy atom numbers
+            final_dict = {}
+            for keys_tuple, values_tuple in dist_dict.items():
+                replaced_keys = tuple(replacement_dict[key] for key in keys_tuple)
+                final_dict[replaced_keys] = values_tuple
+            dist_dict = final_dict
+
+        return dist_dict
+    except Exception as exc:
+        print(exc)
+        return {}
+
 
 def intmap(csv_int, pivot='RESN'):
     df = pd.read_csv(csv_int, sep=';').loc[:, ['PDB', 'RESN', 'RESTYPE', 'INT_TYPE']]
@@ -461,116 +523,128 @@ def view_interactions(viewer_obj, df_interactions, interaction_list):
 from rdkit.Chem import rdDistGeom
 def get_coords(mol):
     mol_copy = deepcopy(mol)
-    mol_copy = GenMtd.replace_dummies(mol_copy, 'C')
+    mol_copy = replace_dummies(mol_copy, 'C')
     mol_copy = Chem.AddHs(mol_copy, addCoords=True)
     rdDistGeom.EmbedMolecule(mol_copy)
     conf = mol_copy.GetConformer()
     return conf.GetPositions()
 
-import subprocess
-def dock_fragments(script, lig_file, rec_file, out_file, center, edges,
-                   poses=6, exh=10, log=False, verbose=True):
-    try:
-        command = f"{script} --ligand {lig_file} --receptor {rec_file} --out {out_file}\
-                    --center_x {center[0]} --center_y {center[1]} --center_z {center[2]}\
-                    --size_x {edges[0]} --size_y {edges[1]} --size_z {edges[2]}\
-                    --num_modes {poses} --exhaustiveness {exh}"
-        if log: command += f" --log {out_file.replace('pdbqt', 'log')}"
-
-        output_text = subprocess.check_output(command, universal_newlines=True, shell=True)
-        if verbose: print(f"*** Succesfully docked {out_file} ***")
-        return output_text
-    except Exception as exc:
-        if verbose:
-            print(f"*** Cannot dock {out_file} ***")
-            print(exc)
-    
-
-def dihedral_filter(N1, D1, N2, D2):
-    """
-    Using the chemical sign convention
-    """
-    n1 = np.cross((D1 - N1), (N2 - N1))
-    n2 = np.cross((N2 - N1), (D2 - N1))
-    n1 /= np.linalg.norm(n1)
-    n2 /= np.linalg.norm(n2)
-
-    m1 = np.cross(n1, (N2 - N1)/np.linalg.norm(N2 - N1))
-    x = np.dot(n1, -n2)
-    y = np.dot(m1, n2)
-    dihedral = np.degrees(np.arctan2(y, x)).round(2)
-
-    if abs(dihedral) <= 30:
-        return dihedral
-    return 
-
-def inclination_filter(N1, D1, N2, D2):
-    v1 = D1 - N1
-    v2 = N2 - N1
-    v3 = D2 - N2
-    v4 = N1 - N2
-    
-    # Calculate the dot product and magnitudes
-    angle1 = np.degrees(np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))).round(2)
-    angle2 = np.degrees(np.arccos(np.dot(v3, v4) / (np.linalg.norm(v3) * np.linalg.norm(v4)))).round(2)
-
-    if abs(angle1 - angle2) <= 30:
-        if angle1 < 70 or angle2 < 70:
-            return [angle1, angle2]
-    return
 
 from itertools import product, combinations
-def full_distance(coord_set1, coord_set2):
-    # Distance between all atoms
-    dist_list = []
-    for pair in product(coord_set1, coord_set2):
-        dist = np.linalg.norm(pair[0] - pair[1]).round(3)
-        dist_list.append(dist)
-    return dist_list
+def distance_matrix(mol1, mol2=None, subset=None):
+    """
+    Get distance between all atoms
+    subset: list([i-indices], [j-indices]) or list([indices])
+    """
+    if not mol2:
+        mol2 = mol1
+    
+    coords1 = np.array([mol1.GetConformer().GetAtomPosition(i) for i in range(mol1.GetNumAtoms())])
+    coords2 = np.array([mol2.GetConformer().GetAtomPosition(i) for i in range(mol2.GetNumAtoms())])
+    
+    dist_matr = np.linalg.norm(coords1[:, np.newaxis] - coords2, axis=2)
 
-def show_atom_indices(mols, label='atomNote', prop=None):
-    "label: [atomNote, molAtomMapNumber]"
-    mol_list = [mols] if not isinstance(mols, list) else mols
-    for mol in mol_list:
-        for atom in mol.GetAtoms():
-            if prop:
-                if not atom.HasProp(prop):
-                    atom.SetProp(label, '')  # Fill prop with dumb values
-                else:
-                    atom.SetProp(label, str(atom.GetProp(prop)))
-            else:
-                atom.SetProp(label, str(atom.GetIdx()))
-
-    if not isinstance(mols, list):
-        return mol_list[0]
-    else:
-        return mol_list
+    if subset:
+        dist_matr = dist_matr[np.ix_(subset[0], subset[1])]
+     
+    return np.round(dist_matr, 4)
 
 
-def remove_atom_indices(mols, label):
-    for mol in mols:
-        for atom in mol.GetAtoms():
-            atom.ClearProp(label)
-    return mols
+def get_dummy_neighbor_idxs(mol):
+    neigh_idxs = []
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() == '*':
+            neighs = atom.GetNeighbors()
+            if len(neighs) > 1:
+                raise KeyError("Dummy atom has more than one neighbor.")
+            neigh_idxs.append(neighs[0].GetIdx())
+    return neigh_idxs
 
-#TODO Check!!
-from PIL import Image
-from io import BytesIO
-def show_bond_indices(mol):
-    def show_mol(d2d, mol, legend='', highlightAtoms=[]):
-        d2d.DrawMolecule(mol,legend=legend, highlightAtoms=highlightAtoms)
-        d2d.FinishDrawing()
-        bio = BytesIO(d2d.GetDrawingText())
-        return Image.open(bio)
 
-    d2d = Draw.MolDraw2DCairo(600,400)
-    dopts = d2d.drawOptions()
-    dopts.addBondIndices = True
-    show_mol(d2d, mol)
+def sanitize(obj):
+    if isinstance(obj, Chem.Mol):
+        return Chem.MolFromSmiles(Chem.MolToSmiles(obj))
+    elif isinstance(obj, str):
+        return Chem.MolToSmiles(Chem.MolFromSmiles(obj))
+    
 
-def reset_view(mol):
-    # Reset coordinates for display
-    rdDepictor.Compute2DCoords(mol)
-    rdDepictor.StraightenDepiction(mol)
-    # Delete substructure highlighting
-    # del mol.__sssAtoms
+def lipinski_filter(mol):
+    # Filter by Lipinski rules
+    from rdkit.Chem import Crippen, Lipinski, Descriptors
+
+    violations = 0
+    if Lipinski.NumHDonors(mol) > 5: violations += 1
+    if Lipinski.NumHAcceptors(mol) > 10: violations += 1
+    if Descriptors.MolWt(mol) > 500: violations += 1
+    # if Crippen.MolLogP(mol) > 5: violations += 1
+
+    return violations
+
+    # if violations < 2:
+    #     return True
+    # return False
+
+def reos_filter(mol):  
+    # Filter by REOS rules
+    from rdkit.Chem import GetFormalCharge, Lipinski, Descriptors
+
+    violations = 0
+    if not 200 < Descriptors.MolWt(mol) < 500: violations += 1
+    if not -5 < Descriptors.MolLogP(mol) < 5: violations += 1
+    if not 15 < mol.GetNumHeavyAtoms() < 50: violations += 1
+    if not -2 < GetFormalCharge(mol) < 2: violations += 1
+
+    if Lipinski.NumHDonors(mol) > 5: violations += 1
+    if Lipinski.NumHAcceptors(mol) > 10: violations += 1
+    if Descriptors.NumRotatableBonds(mol) > 8: violations += 1
+
+    if violations < 2:
+        return True
+    return False
+
+
+def create_bonds(mol, dummy_pairs):
+    rwMol = Chem.RWMol(deepcopy(mol))
+    Chem.Kekulize(rwMol, clearAromaticFlags=True)
+    
+    # Neutralise active dummies by turning them into Xe or H
+    for atom in rwMol.GetAtoms():
+        if atom.GetSymbol() == '*':
+            rwMol.GetAtomWithIdx(atom.GetIdx()).SetAtomicNum(54)  #<-- Use this to check bond errors
+
+    for dummy_pair in dummy_pairs:
+        neigh_dummies = []
+        for dummy_idx in dummy_pair:
+            dummy_atom = rwMol.GetAtomWithIdx(dummy_idx)
+            for neighbor in dummy_atom.GetNeighbors():
+                if neighbor.GetAtomicNum() != 1:  # Non-hydrogen neighbors
+                    neigh_dummies.append(neighbor.GetIdx())
+
+        # Merge fragments
+        # #TODO: Change chirality of neighs before adding linkers.
+        # #TODO: If not inverted, linkers end up in the opposite configuration
+        #!-- Use this to check bond errors --!#
+        # atnum = rwMol.GetAtomWithIdx(neigh_dummies[0]).GetAtomicNum()
+        # rwMol.GetAtomWithIdx(neigh_dummies[0]).SetAtomicNum(atnum + 8)
+        # atnum = rwMol.GetAtomWithIdx(neigh_dummies[1]).GetAtomicNum()
+        # rwMol.GetAtomWithIdx(neigh_dummies[1]).SetAtomicNum(atnum + 8)
+        #!-----------------------------------!#
+        rwMol.AddBond(neigh_dummies[0], neigh_dummies[1], order=Chem.rdchem.BondType.SINGLE)  #! not always single!!
+        rwMol.GetAtomWithIdx(neigh_dummies[0]).SetNumExplicitHs(0)
+        rwMol.GetAtomWithIdx(neigh_dummies[1]).SetNumExplicitHs(0)
+
+    # #!-- Comment this to check bond errors --!#
+    Xe_list = [a.GetIdx() for a in rwMol.GetAtoms() if a.GetSymbol() == 'Xe']
+    for dummy in sorted(Xe_list, reverse=True):
+        for b in rwMol.GetAtomWithIdx(dummy).GetBonds():
+            b.SetBondType(Chem.rdchem.BondType.SINGLE)
+        rwMol.RemoveAtom(dummy)
+    # #!-----------------------------------!#
+
+    rwMol = Chem.RemoveHs(rwMol)
+    Chem.SanitizeMol(rwMol)
+    Chem.rdmolops.SanitizeFlags.SANITIZE_NONE
+    out_smiles = Chem.MolToSmiles(Chem.Mol(rwMol), canonical=False)
+    out_smiles = out_smiles.replace('[C]', 'C').replace('[CH]', 'C') #<-- Temporarily fixes radical carbons
+    if len(out_smiles.split('.')) == 1:
+        return Chem.MolFromSmiles(out_smiles)
