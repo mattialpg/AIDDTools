@@ -1,4 +1,5 @@
 **/__pycache__/
 *.py[cod]
 biblio/
+old/
 CADD-tools_old.rar
