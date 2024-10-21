@@ -5,6 +5,7 @@ import warnings
 import math
 import numpy as np
 import pandas as pd
+from urllib import parse
 
 from natsort import natsorted, natsort_keygen
 from copy import deepcopy
@@ -12,6 +13,7 @@ from itertools import combinations
 
 from rdkit import Chem
 from rdkit.Chem import Draw, AllChem, rdDepictor
+from rdkit.Chem.Draw import rdMolDraw2D
 # from openmm.app import PDBFile
 # from pdbfixer import PDBFixer
 # from openbabel import openbabel
@@ -59,92 +61,111 @@ def export_mol(mol, outfile, addHs=False, verbose=False):
         print(f"*** Succesfully exported {outfile} ***")
         
 
-def draw_mols(mols, filename=None, align=False):
+# def draw_mols(mols, filename=None, align=False):
 
-    # from rdkit.Chem import rdCoordGen
-    # mols = []
-    # for smi in df.SMILES:
-        # mol = Chem.MolFromSmiles(smi)
-        # mols.append(mol)
-        # # AllChem.Compute2DCoords(mol)
-        # ##OR##
-        # rdCoordGen.AddCoords(mol)
+#     # from rdkit.Chem import rdCoordGen
+#     # mols = []
+#     # for smi in df.SMILES:
+#         # mol = Chem.MolFromSmiles(smi)
+#         # mols.append(mol)
+#         # # AllChem.Compute2DCoords(mol)
+#         # ##OR##
+#         # rdCoordGen.AddCoords(mol)
 
-    # # Condense functional groups (e.g. -CF3, -AcOH)
-    # abbrevs = rdAbbreviations.GetDefaultAbbreviations()
-    # mol = rdAbbreviations.CondenseMolAbbreviations(mol,abbrevs,maxCoverage=0.8)
+#     # # Condense functional groups (e.g. -CF3, -AcOH)
+#     # abbrevs = rdAbbreviations.GetDefaultAbbreviations()
+#     # mol = rdAbbreviations.CondenseMolAbbreviations(mol,abbrevs,maxCoverage=0.8)
 
-    # Calculate Murcko Scaffold Hashes
-    # regio = [rdMolHash.MolHash(mol,Chem.rdMolHash.HashFunction.Regioisomer).split('.') for mol in mols]
-    # common = list(reduce(lambda i, j: i & j, (set(x) for x in regio)))
-    # long = max(common, key=len)
+#     # Calculate Murcko Scaffold Hashes
+#     # regio = [rdMolHash.MolHash(mol,Chem.rdMolHash.HashFunction.Regioisomer).split('.') for mol in mols]
+#     # common = list(reduce(lambda i, j: i & j, (set(x) for x in regio)))
+#     # long = max(common, key=len)
 
-    # Murcko scaffold decomposition
-        # scaffold = MurckoScaffold.GetScaffoldForMol(mol)
-        # generic = MurckoScaffold.MakeScaffoldGeneric(MurckoScaffold.GetScaffoldForMol(mol))
-        # plot = Draw.MolsToGridImage([mol, scaffold, generic], legends=['Compound', 'BM scaffold', 'Graph framework'], 
-                # molsPerRow=3, subImgSize=(600,600)); plot.show()
+#     # Murcko scaffold decomposition
+#         # scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+#         # generic = MurckoScaffold.MakeScaffoldGeneric(MurckoScaffold.GetScaffoldForMol(mol))
+#         # plot = Draw.MolsToGridImage([mol, scaffold, generic], legends=['Compound', 'BM scaffold', 'Graph framework'], 
+#                 # molsPerRow=3, subImgSize=(600,600)); plot.show()
 
-    if align is True:
-        # Perform match with a direct substructure m1
-        m1 = Chem.MolFromSmiles('CC1=CC=C(C=C1)C(C)C')
-        sub1 = [mol for mol in mols if mol.HasSubstructMatch(m1)]
-        sub2 = [mol for mol in mols if mol not in sub1]
-        # print(Chem.MolToMolBlock(m1)) # Print coordinates
-        AllChem.Compute2DCoords(m1)
+#     if align is True:
+#         # Perform match with a direct substructure m1
+#         m1 = Chem.MolFromSmiles('CC1=CC=C(C=C1)C(C)C')
+#         sub1 = [mol for mol in mols if mol.HasSubstructMatch(m1)]
+#         sub2 = [mol for mol in mols if mol not in sub1]
+#         # print(Chem.MolToMolBlock(m1)) # Print coordinates
+#         AllChem.Compute2DCoords(m1)
         
-        # # Find Maximum Common Substructure m2
-        # mcs1 = rdFMCS.FindMCS(sub2 + [m1])
-        # m2 = Chem.MolFromSmarts(mcs1.smartsString)
-        # AllChem.Compute2DCoords(m2)
-        # # plot = Draw.MolToImage(m2); plot.show()
-        # OR #
-        # Find generic substructure m2
-        params = AllChem.AdjustQueryParameters()
-        params.makeAtomsGeneric = True
-        params.makeBondsGeneric = True
-        m2 = AllChem.AdjustQueryProperties(Chem.RemoveHs(m1), params)
-        AllChem.Compute2DCoords(m2)
-        # plot = Draw.MolToImage(m2); plot.show()
+#         # # Find Maximum Common Substructure m2
+#         # mcs1 = rdFMCS.FindMCS(sub2 + [m1])
+#         # m2 = Chem.MolFromSmarts(mcs1.smartsString)
+#         # AllChem.Compute2DCoords(m2)
+#         # # plot = Draw.MolToImage(m2); plot.show()
+#         # OR #
+#         # Find generic substructure m2
+#         params = AllChem.AdjustQueryParameters()
+#         params.makeAtomsGeneric = True
+#         params.makeBondsGeneric = True
+#         m2 = AllChem.AdjustQueryProperties(Chem.RemoveHs(m1), params)
+#         AllChem.Compute2DCoords(m2)
+#         # plot = Draw.MolToImage(m2); plot.show()
        
-        # Rotate m1 and m2 by an angle theta
-        theta = math.radians(-90.)
-        transformation_matrix = np.array([
-            [ np.cos(theta), np.sin(theta), 0., 3.],
-            [-np.sin(theta), np.cos(theta), 0., 2.],
-            [            0.,            0., 1., 1.],
-            [            0.,            0., 0., 1.]])
-        AllChem.TransformConformer(m1.GetConformer(), transformation_matrix)
-        AllChem.TransformConformer(m2.GetConformer(), transformation_matrix)
+#         # Rotate m1 and m2 by an angle theta
+#         theta = math.radians(-90.)
+#         transformation_matrix = np.array([
+#             [ np.cos(theta), np.sin(theta), 0., 3.],
+#             [-np.sin(theta), np.cos(theta), 0., 2.],
+#             [            0.,            0., 1., 1.],
+#             [            0.,            0., 0., 1.]])
+#         AllChem.TransformConformer(m1.GetConformer(), transformation_matrix)
+#         AllChem.TransformConformer(m2.GetConformer(), transformation_matrix)
 
-        plot = Draw.MolsToGridImage([m1, m2], molsPerRow=2, subImgSize=(600,300),
-                                    legends=['Core substructure','Generic substructure']); plot.show()
+#         plot = Draw.MolsToGridImage([m1, m2], molsPerRow=2, subImgSize=(600,300),
+#                                     legends=['Core substructure','Generic substructure']); plot.show()
 
-        # Align all probe molecules to m1 or m2
-        for s in sub1:
-            AllChem.GenerateDepictionMatching2DStructure(s,m1)
-        for s in sub2:
-            AllChem.GenerateDepictionMatching2DStructure(s,m2)
-        subs = sub1 + sub2
-    else: subs = mols
+#         # Align all probe molecules to m1 or m2
+#         for s in sub1:
+#             AllChem.GenerateDepictionMatching2DStructure(s,m1)
+#         for s in sub2:
+#             AllChem.GenerateDepictionMatching2DStructure(s,m2)
+#         subs = sub1 + sub2
+#     else: subs = mols
     
-    img1 = Draw.MolsToGridImage(subs, molsPerRow=3, subImgSize=(600,400),
-                                legends=[s.GetProp('_Name') for s in subs])    
-    img2 = Draw.MolsToGridImage(subs, molsPerRow=3, subImgSize=(600,400),
-                                legends=[s.GetProp('_Name') for s in subs], useSVG=True)
-                                # highlightAtomLists=highlight_mostFreq_murckoHash
+#     img1 = Draw.MolsToGridImage(subs, molsPerRow=3, subImgSize=(600,400),
+#                                 legends=[s.GetProp('_Name') for s in subs])    
+#     img2 = Draw.MolsToGridImage(subs, molsPerRow=3, subImgSize=(600,400),
+#                                 legends=[s.GetProp('_Name') for s in subs], useSVG=True)
+#                                 # highlightAtomLists=highlight_mostFreq_murckoHash
                                 
-    if filename:
-        img1.save(filename)
-        open(filename.split('.')[0] + '.svg','w').write(img2)
-    else: img1.show()
+#     if filename:
+#         img1.save(filename)
+#         open(filename.split('.')[0] + '.svg','w').write(img2)
+#     else: img1.show()
     
-    # Manually rotate molecules and draw
-    # d = Draw.rdMolDraw2D.MolDraw2DCairo(512, 512)
-    # # d.drawOptions().rotate = -90
-    # d.DrawMolecule(m1)
-    # d.FinishDrawing()
-    # d.WriteDrawingText("0.png")
+#     # Manually rotate molecules and draw
+#     # d = Draw.rdMolDraw2D.MolDraw2DCairo(512, 512)
+#     # # d.drawOptions().rotate = -90
+#     # d.DrawMolecule(m1)
+#     # d.FinishDrawing()
+#     # d.WriteDrawingText("0.png")
+
+
+def mol2svg(mol):
+    try:
+        Chem.rdmolops.Kekulize(mol)
+    except:
+        pass
+    drawer = rdMolDraw2D.MolDraw2DSVG(600, 600)
+    rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol)
+    drawer.FinishDrawing()
+    svg_string = drawer.GetDrawingText()
+
+    # In some cases the smiles must be modified when dealing with rings
+    # smi = smi[0].upper() + smi[1:]
+    # svg_string = smi2svg(smi)
+    
+    impath = 'data:image/svg+xml;charset=utf-8,' + parse.quote(svg_string, safe="")
+
+    return impath
 
 
 import py3Dmol
@@ -217,6 +238,7 @@ def show_bond_indices(mol):
 def reset_view(mol):
     mol = deepcopy(mol)
     # Reset coordinates for display
+    rdDepictor.SetPreferCoordGen(True)
     rdDepictor.Compute2DCoords(mol)
     rdDepictor.StraightenDepiction(mol)
     # Delete substructure highlighting
@@ -289,10 +311,10 @@ def dist_between_dummies(mol, numConfs=100, replace_with=None):
             dummies = [a.GetIdx() for a in mol_copy.GetAtoms() if a.GetSymbol() == '*']
             mol_copy = replace_dummies(mol_copy, 'C')
             mol_copy = Chem.AddHs(mol_copy, addCoords=True)
-        else:
-            mol_copy = GraphRecomp.join_fragments([mol_copy], [Chem.MolFromSmiles(replace_with)])
-            dummies = [a.GetIdx() for a in mol_copy.GetAtoms()\
-                       if a.GetProp('_newbond') == 'True' and a.GetProp('_label') == 'L']
+        # else:
+        #     mol_copy = GraphRecomp.join_fragments([mol_copy], [Chem.MolFromSmiles(replace_with)])
+        #     dummies = [a.GetIdx() for a in mol_copy.GetAtoms()\
+        #                if a.GetProp('_newbond') == 'True' and a.GetProp('_label') == 'L']
     
         if len(dummies) < 2:
             print('Number of dummy atoms less than 2')
@@ -361,126 +383,126 @@ def dist_between_dummies(mol, numConfs=100, replace_with=None):
         return {}
 
 
-def intmap(csv_int, pivot='RESN'):
-    df = pd.read_csv(csv_int, sep=';').loc[:, ['PDB', 'RESN', 'RESTYPE', 'INT_TYPE']]
-    if pivot == 'RESN':
-        res_dict = dict(zip(df['RESN'], df.replace({'RESTYPE': standard_AAs})['RESTYPE']\
-                                + df['RESN'].astype(str)))
+# def intmap(csv_int, pivot='RESN'):
+#     df = pd.read_csv(csv_int, sep=';').loc[:, ['PDB', 'RESN', 'RESTYPE', 'INT_TYPE']]
+#     if pivot == 'RESN':
+#         res_dict = dict(zip(df['RESN'], df.replace({'RESTYPE': standard_AAs})['RESTYPE']\
+#                                 + df['RESN'].astype(str)))
     
-    dict_int = {'hydrophobic':'1', 'hbond':'2', 'pistacking':'3', 'waterbridge':'4',
-                'saltbridge':'5', 'pication':'6', 'halogen':'7', 'metal':'8', 'covalent':'9'}
-    df = df.replace({'INT_TYPE': dict_int})
-    df2 = df.pivot_table(index='PDB', columns=pivot, values='INT_TYPE', aggfunc='max', fill_value=np.nan)
-    df2 = df2.dropna(axis=1, how='all').fillna(0)        # Drop NaN columns and replace NaN with 0
-    df2 = df2.sort_values(by = 'PDB', key=natsort_keygen())
-    df2.reset_index(inplace=True)                        # Reset 'PDB' as a column, not index
-    if pivot == 'RESN':
-        df2 = df2.rename(res_dict, axis=1)                # Use compact aa notation for columns
-    df2.columns.name = None                                # Remove spurious 'RESN' label
-    open('intmap_complete.txt', 'w').write(df2.to_csv(sep='\t', line_terminator='\n', index=False))
-    return(df2)
+#     dict_int = {'hydrophobic':'1', 'hbond':'2', 'pistacking':'3', 'waterbridge':'4',
+#                 'saltbridge':'5', 'pication':'6', 'halogen':'7', 'metal':'8', 'covalent':'9'}
+#     df = df.replace({'INT_TYPE': dict_int})
+#     df2 = df.pivot_table(index='PDB', columns=pivot, values='INT_TYPE', aggfunc='max', fill_value=np.nan)
+#     df2 = df2.dropna(axis=1, how='all').fillna(0)        # Drop NaN columns and replace NaN with 0
+#     df2 = df2.sort_values(by = 'PDB', key=natsort_keygen())
+#     df2.reset_index(inplace=True)                        # Reset 'PDB' as a column, not index
+#     if pivot == 'RESN':
+#         df2 = df2.rename(res_dict, axis=1)                # Use compact aa notation for columns
+#     df2.columns.name = None                                # Remove spurious 'RESN' label
+#     open('intmap_complete.txt', 'w').write(df2.to_csv(sep='\t', line_terminator='\n', index=False))
+#     return(df2)
 
-def heatmap(df3, ref=None, square=False, savename='heatmap.png'):
-    """ Plot heatmap """
-    if not isinstance(df3, pd.DataFrame): df3 = pd.read_csv(df3, sep='\t')
-    df3.replace(0, np.nan, inplace=True)
+# def heatmap(df3, ref=None, square=False, savename='heatmap.png'):
+#     """ Plot heatmap """
+#     if not isinstance(df3, pd.DataFrame): df3 = pd.read_csv(df3, sep='\t')
+#     df3.replace(0, np.nan, inplace=True)
 
-    myColors = ('#ff9b37', '#c8c8ff', '#78c878', '#ff8c8c',
-                '#8c8cff', '#82aab9', '#f5af91', '#ffd291', '#bfbfbf')
+#     myColors = ('#ff9b37', '#c8c8ff', '#78c878', '#ff8c8c',
+#                 '#8c8cff', '#82aab9', '#f5af91', '#ffd291', '#bfbfbf')
                 
-    NGL_colors = ([0.90, 0.10, 0.29], [0.26, 0.83, 0.96], [1.00, 0.88, 0.10], [0.67, 1.00, 0.76],
-    [0.75, 0.94, 0.27], [0.27, 0.60, 0.56], [0.94, 0.20, 0.90], [0.90, 0.75, 1.00], [0.92, 0.93, 0.96])
+#     NGL_colors = ([0.90, 0.10, 0.29], [0.26, 0.83, 0.96], [1.00, 0.88, 0.10], [0.67, 1.00, 0.76],
+#     [0.75, 0.94, 0.27], [0.27, 0.60, 0.56], [0.94, 0.20, 0.90], [0.90, 0.75, 1.00], [0.92, 0.93, 0.96])
 
-    n = len(NGL_colors)
-    cmap = LinearSegmentedColormap.from_list('Custom', myColors, n)
+#     n = len(NGL_colors)
+#     cmap = LinearSegmentedColormap.from_list('Custom', myColors, n)
 
-    if ref:
-        df4 = pd.read_csv(ref, sep='\t')
-        df3 = pd.concat([df4,df3], axis=0).fillna(0)
-        df3 = df3.reset_index(drop=True)
-        df3 = df3.reindex(natsorted(df3.columns), axis=1)
-        col = df3.pop('PDB'); df3.insert(0,col.name,col) # Shift 'PDB' column back to first position
+#     if ref:
+#         df4 = pd.read_csv(ref, sep='\t')
+#         df3 = pd.concat([df4,df3], axis=0).fillna(0)
+#         df3 = df3.reset_index(drop=True)
+#         df3 = df3.reindex(natsorted(df3.columns), axis=1)
+#         col = df3.pop('PDB'); df3.insert(0,col.name,col) # Shift 'PDB' column back to first position
 
-    grid_kws = {'height_ratios': [5], 'width_ratios': [30,1], 'wspace': 0.1}
-    if len(df3.index) > 250:
-        df_split = np.array_split(df3, len(df3.index)//250)
-    else: df_split = [df3]
+#     grid_kws = {'height_ratios': [5], 'width_ratios': [30,1], 'wspace': 0.1}
+#     if len(df3.index) > 250:
+#         df_split = np.array_split(df3, len(df3.index)//250)
+#     else: df_split = [df3]
     
-    for idx,subdf in enumerate(df_split):
-        fig, (ax, axcb) = plt.subplots(1, 2, figsize=(12,9), gridspec_kw=grid_kws)
-        #< Need to use axcb for the colorbar in order to lock its size to that of the map >#
-        g = sns.heatmap(subdf.iloc[:,1:], ax=ax, cbar_ax=axcb,
-                        cmap=cmap, vmin=0, vmax=10,
-                        linecolor='white', linewidths=0.5,
-                        xticklabels=list(subdf.columns.values)[1:],
-                        yticklabels=list(subdf['PDB']),
-                        # square=square, cbar_kws={"shrink":0.6}
-                        )
-        g.set_facecolor('#fafbd8')
+#     for idx,subdf in enumerate(df_split):
+#         fig, (ax, axcb) = plt.subplots(1, 2, figsize=(12,9), gridspec_kw=grid_kws)
+#         #< Need to use axcb for the colorbar in order to lock its size to that of the map >#
+#         g = sns.heatmap(subdf.iloc[:,1:], ax=ax, cbar_ax=axcb,
+#                         cmap=cmap, vmin=0, vmax=10,
+#                         linecolor='white', linewidths=0.5,
+#                         xticklabels=list(subdf.columns.values)[1:],
+#                         yticklabels=list(subdf['PDB']),
+#                         # square=square, cbar_kws={"shrink":0.6}
+#                         )
+#         g.set_facecolor('#fafbd8')
         
-        # Ticks and labels
-        ax.set_xlabel('RESN'); ax.set_ylabel('CCI')
-        ax.tick_params(axis='both')#, labelsize=7)
-        # if ref is not None: ax.hlines([len(df4.index)], *ax.get_xlim(), color='black', lw=0.4)
-        if len(subdf.index) > 55: ax.set_yticks([])
+#         # Ticks and labels
+#         ax.set_xlabel('RESN'); ax.set_ylabel('CCI')
+#         ax.tick_params(axis='both')#, labelsize=7)
+#         # if ref is not None: ax.hlines([len(df4.index)], *ax.get_xlim(), color='black', lw=0.4)
+#         if len(subdf.index) > 55: ax.set_yticks([])
 
-        # Heatmap frame
-        ax.axhline(y=0, color='k',linewidth=0.8)
-        ax.axhline(y=subdf.iloc[:,1:].shape[0], color='k',linewidth=0.8)
-        ax.axvline(x=0, color='k',linewidth=0.8)
-        ax.axvline(x=subdf.iloc[:,1:].shape[1], color='k',linewidth=0.8)
+#         # Heatmap frame
+#         ax.axhline(y=0, color='k',linewidth=0.8)
+#         ax.axhline(y=subdf.iloc[:,1:].shape[0], color='k',linewidth=0.8)
+#         ax.axvline(x=0, color='k',linewidth=0.8)
+#         ax.axvline(x=subdf.iloc[:,1:].shape[1], color='k',linewidth=0.8)
 
-        # Colorbar settings
-        r = axcb.get_ylim()[1] - axcb.get_ylim()[0]
-        axcb.yaxis.set_ticks([axcb.get_ylim()[0] + 0.5*r/n + r*i/n for i in range(n)]) # Evenly distribute ticks
-        axcb.set_yticklabels(['Hydrophobic', 'H-bond', r'$\pi$-stacking' ,'Water bridge',
-                            'Salt bridge', r'$\pi$-cation', 'Halogen', 'Metal', 'Covalent'])
-        # for spine in ax.collections[0].colorbar.ax.spines.values():
-            # spine.set_visible(True) # Show the border of the colorbar
+#         # Colorbar settings
+#         r = axcb.get_ylim()[1] - axcb.get_ylim()[0]
+#         axcb.yaxis.set_ticks([axcb.get_ylim()[0] + 0.5*r/n + r*i/n for i in range(n)]) # Evenly distribute ticks
+#         axcb.set_yticklabels(['Hydrophobic', 'H-bond', r'$\pi$-stacking' ,'Water bridge',
+#                             'Salt bridge', r'$\pi$-cation', 'Halogen', 'Metal', 'Covalent'])
+#         # for spine in ax.collections[0].colorbar.ax.spines.values():
+#             # spine.set_visible(True) # Show the border of the colorbar
                             
-        plt.tight_layout()
-        plt.savefig(savename.replace('.', '_%i.' %(idx+1)), dpi=600)
-        # plt.show()
-    return
+#         plt.tight_layout()
+#         plt.savefig(savename.replace('.', '_%i.' %(idx+1)), dpi=600)
+#         # plt.show()
+#     return
 
-def timemap(df3, savename='timemap.png', title=None):
-    """ Plot heatmap """
-    if not isinstance(df3, pd.DataFrame):
-        df3 = pd.read_csv(df3, sep='\t')
+# def timemap(df3, savename='timemap.png', title=None):
+#     """ Plot heatmap """
+#     if not isinstance(df3, pd.DataFrame):
+#         df3 = pd.read_csv(df3, sep='\t')
 
-    # if len(df3.index) <= 100:
-        # df3 = df3.reindex(list(range(0, 101))).reset_index(drop=True).fillna(0)
+#     # if len(df3.index) <= 100:
+#         # df3 = df3.reindex(list(range(0, 101))).reset_index(drop=True).fillna(0)
 
-    myColors = ('#fafbd8', '#ff9b37', '#c8c8ff', '#78c878', '#ff8c8c',
-                '#8c8cff', '#82aab9', '#f5af91', '#ffd291', '#bfbfbf')
-    cmap = LinearSegmentedColormap.from_list('Custom', myColors, len(myColors))
+#     myColors = ('#fafbd8', '#ff9b37', '#c8c8ff', '#78c878', '#ff8c8c',
+#                 '#8c8cff', '#82aab9', '#f5af91', '#ffd291', '#bfbfbf')
+#     cmap = LinearSegmentedColormap.from_list('Custom', myColors, len(myColors))
     
-    sns.set();
-    ax = sns.heatmap(df3.iloc[:,1:].T, cmap=cmap, vmin=0, vmax=10,
-                    xticklabels=20, 
-                    yticklabels=list(df3.columns.values)[1:])
+#     sns.set();
+#     ax = sns.heatmap(df3.iloc[:,1:].T, cmap=cmap, vmin=0, vmax=10,
+#                     xticklabels=20, 
+#                     yticklabels=list(df3.columns.values)[1:])
 
-    # ax.tick_params(axis='y', labelsize=7)
-    ax.invert_yaxis(); plt.yticks(rotation=0)
-    plt.xlabel('Time (ns)'); plt.ylabel('Res. Num.')
-    ax.tick_params(left=True, bottom=True)
+#     # ax.tick_params(axis='y', labelsize=7)
+#     ax.invert_yaxis(); plt.yticks(rotation=0)
+#     plt.xlabel('Time (ns)'); plt.ylabel('Res. Num.')
+#     ax.tick_params(left=True, bottom=True)
 
-    ax.axhline(y=0, color='k', linewidth=2)
-    ax.axvline(x=0, color='k', linewidth=2)
-    ax.axhline(y=df3.iloc[:,1:].shape[1], color='k', linewidth=2)
-    ax.axvline(x=df3.iloc[:,1:].shape[0], color='k', linewidth=2)
+#     ax.axhline(y=0, color='k', linewidth=2)
+#     ax.axvline(x=0, color='k', linewidth=2)
+#     ax.axhline(y=df3.iloc[:,1:].shape[1], color='k', linewidth=2)
+#     ax.axvline(x=df3.iloc[:,1:].shape[0], color='k', linewidth=2)
     
-    colorbar = ax.collections[0].colorbar
-    colorbar.set_ticks(np.linspace(0,10,21)[1::2])
-    colorbar.set_ticklabels(['', 'hydrophobic', 'hbond', 'pistacking' ,'waterbridge',
-                        'saltbridge', 'pication', 'halogen', 'metal', 'covalent'])
+#     colorbar = ax.collections[0].colorbar
+#     colorbar.set_ticks(np.linspace(0,10,21)[1::2])
+#     colorbar.set_ticklabels(['', 'hydrophobic', 'hbond', 'pistacking' ,'waterbridge',
+#                         'saltbridge', 'pication', 'halogen', 'metal', 'covalent'])
 
-    # if len(df3.index) > 55: plt.yticks([])
-    if title is not None: plt.title(title, weight='bold', y=1.02)#, fontsize = 20)
-    plt.tight_layout()
-    plt.savefig(savename, dpi=600)
-    plt.show()
-    return
+#     # if len(df3.index) > 55: plt.yticks([])
+#     if title is not None: plt.title(title, weight='bold', y=1.02)#, fontsize = 20)
+#     plt.tight_layout()
+#     plt.savefig(savename, dpi=600)
+#     plt.show()
+#     return
 
 
 def view_interactions(viewer_obj, df_interactions, interaction_list):
@@ -561,7 +583,7 @@ def get_dummy_neighbor_idxs(mol):
     return neigh_idxs
 
 
-def sanitize(obj):
+def canonicalize(obj):
     if isinstance(obj, Chem.Mol):
         return Chem.MolFromSmiles(Chem.MolToSmiles(obj))
     elif isinstance(obj, str):
@@ -648,3 +670,20 @@ def create_bonds(mol, dummy_pairs):
     out_smiles = out_smiles.replace('[C]', 'C').replace('[CH]', 'C') #<-- Temporarily fixes radical carbons
     if len(out_smiles.split('.')) == 1:
         return Chem.MolFromSmiles(out_smiles)
+
+
+def neutralize_atoms(mol):
+    """ https://baoilleach.blogspot.com/2019/12/no-charge-simple-approach-to.html """
+    pattern = Chem.MolFromSmarts("[+1!h0!$([*]~[-1,-2,-3,-4]),-1!$([*]~[+1,+2,+3,+4])]")
+    at_matches = mol.GetSubstructMatches(pattern)
+    at_matches_list = [y[0] for y in at_matches]
+    if len(at_matches_list) > 0:
+        for at_idx in at_matches_list:
+            atom = mol.GetAtomWithIdx(at_idx)
+            chg = atom.GetFormalCharge()
+            hcount = atom.GetTotalNumHs()
+            atom.SetFormalCharge(0)
+            atom.SetNumExplicitHs(hcount - chg)
+            atom.UpdatePropertyCache()
+    del mol.__sssAtoms
+    return mol

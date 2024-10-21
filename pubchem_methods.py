@@ -30,9 +30,9 @@ from rdkit.Chem import AllChem, rdDepictor, Draw
 from rdkit.Chem.PropertyMol import PropertyMol
 
 # Custom libraries
-from tools import utils
-from tools import GraphDecomp as GD
-from tools import molecular_methods as MolMtd
+# from tools import utils
+# from tools import GraphDecomp as GD
+# from tools import molecular_methods as MolMtd
 
 # Caching requests will speed up repeated queries to PDB
 import redo, requests_cache
@@ -84,22 +84,22 @@ def get_compound(entry, server, dbdir, verbose=False):
                      'xlogp': comp.xlogp}
         return dict_data
 
-    # elif server == 'kegg':
-    #     singleton = KEGGSingleton()  # Singleton instance
-    #     kegg = singleton.kegg        # Access KEGG instance
-    #     rest = singleton.rest        # Access REST instance
+    elif server == 'kegg':
+        singleton = KEGGSingleton()  # Singleton instance
+        kegg = singleton.kegg        # Access KEGG instance
+        rest = singleton.rest        # Access REST instance
 
-    #     try:
-    #         with open(f"{dbdir}/{filename}", 'r') as text:
-    #             dict_data = kegg.parse(text.read())
-    #         if verbose: print('Reading file...')
-    #     except:  # Download from server
-    #         kegg_entry = rest.kegg_get(entry).read()
-    #         with open(f"{dbdir}/{filename}", 'w', encoding='utf-8') as file:
-    #             file.write(kegg_entry)
-    #             dict_data = kegg.parse(kegg_entry)
-    #         if verbose: print('Downloading file...')
-    #     return dict_data
+        try:
+            with open(f"{dbdir}/{filename}", 'r') as text:
+                dict_data = kegg.parse(text.read())
+            if verbose: print('Reading file...')
+        except:  # Download from server
+            kegg_entry = rest.kegg_get(entry).read()
+            with open(f"{dbdir}/{filename}", 'w', encoding='utf-8') as file:
+                file.write(kegg_entry)
+                dict_data = kegg.parse(kegg_entry)
+            if verbose: print('Downloading file...')
+        return dict_data
 
     if not_found:
         with open(f"{dbdir}/not_found.txt", 'r') as f:
