@@ -167,44 +167,77 @@ int_types = ['hydrophobic', 'hbond', 'waterbridge', 'saltbridge',
 nonLOI_list = nonLOI_list + list(standard_AAs.keys()) + list(modified_AAs.keys())
 
 def prex(*args):
+    """Prints the arguments and exits the program."""
     print(*args)
     exit()
 
 def ppex(*args):
-    np.set_printoptions(threshold=sys.maxsize)
+    """Pretty prints the arguments with full display options and exits the program."""
+    np.set_printoptions(threshold=sys.maxsize)  # Set numpy print options to show all elements
+    # Set pandas display options to show all rows and columns with specified precision
     with pd.option_context('display.max_rows', None,
                            'display.max_columns', None,
                            'display.precision', 3):
-         pprint(*args)
-    exit()
+        pprint(*args)  # Pretty print the provided arguments
+    exit()  # Exit the program
 
 def flatten(list):
-    flat_list = [item for sublist in list for item in sublist]
-    return(flat_list)
+    """Flattens a list of lists into a single list."""
+    flat_list = [item for sublist in list for item in sublist]  # List comprehension to flatten the list
+    return flat_list  # Return the flattened list
     
 def stripNone(data):
+    """Recursively removes None values from dictionaries, lists, tuples, and sets."""
     if isinstance(data, dict):
-        return {k:stripNone(v) for k, v in data.items() if k is not None and v is not None}
+        # Create a new dictionary excluding None keys and values
+        return {k: stripNone(v) for k, v in data.items() if k is not None and v is not None}
     elif isinstance(data, list):
+        # Create a new list excluding None values
         return [stripNone(item) for item in data if item is not None]
     elif isinstance(data, tuple):
+        # Create a new tuple excluding None values
         return tuple(stripNone(item) for item in data if item is not None)
     elif isinstance(data, set):
+        # Create a new set excluding None values
         return {stripNone(item) for item in data if item is not None}
     else:
-        return data
+        return data  # Return the data if it's not a collection type
     
 def chunks(lst, n):
     """Return successive n-sized chunks from lst."""
-    chunk_list = []
+    chunk_list = []  # Initialize an empty list to hold chunks
     for i in range(0, len(lst), n):
+        # Append slices of the list to the chunk_list
         chunk_list.append(lst[i:i + n])
-    return chunk_list
+    return chunk_list  # Return the list of chunks
 
 def read_files(files):
-    if '*' in files: pdblist = [x.replace('\\','/') for x in glob.glob(files)]
-    else: pdblist = files if isinstance(files, list) else [files]
-    return pdblist
+    """Reads files based on a pattern or a list of filenames."""
+    if '*' in files: 
+        # Use glob to find all files matching the pattern and replace backslashes with forward slashes
+        pdblist = [x.replace('\\', '/') for x in glob.glob(files)]
+    else: 
+        # If files is a list or a single file, convert it to a list
+        pdblist = files if isinstance(files, list) else [files]
+    return pdblist  # Return the list of files
+
+def diff(df1, df2, col=None):
+    """Returns the difference between two DataFrames based on a specified column or index."""
+    if col:
+        # Find rows in df1 where the specified column values are not in df2
+        df_diff = df1.loc[~df1[col].isin(df2[col])].copy()
+    else:
+        # Find rows in df1 that are not in df2 based on index
+        df_diff = df1[~df1.index.isin(df2.index)]
+        # Uncomment the line below to find columns in df1 that are not in df2
+        # df_diff = df1[[x for x in df1.columns if x not in df2.columns]].copy()
+    return df_diff  # Return the difference DataFrame
+
+def move_column(df, from_pos, to_pos):
+    """Moves a column in a DataFrame from one position to another."""
+    cols = df.columns.tolist()
+    cols.insert(to_pos, cols.pop(from_pos))
+    return df[cols]
 
 
 
@@ -232,95 +265,7 @@ def is_notebook() -> bool:
             return False  # Other type (?)
     except NameError:
         return False      # Probably standard Python interpreter
-        
  
-def diff(df1, df2, col=None):
-    if col:
-        df_diff = df1.loc[~df1[col].isin(df2[col])].copy()
-    else:
-        df_diff = df1[~df1.index.isin(df2.index)]
-        # df_diff = df1[[x for x in df1.columns if x not in df2.columns]].copy()
-    return df_diff
-
-
-from rdkit import Chem
-from rdkit.Chem import AllChem, Draw
-import py3Dmol
-def drawit(m,p=None,confId=-1):
-        mb = Chem.MolToMolBlock(m,confId=confId)
-        if p is None:
-            p = py3Dmol.view(width=400,height=400)
-        p.removeAllModels()
-        p.addModel(mb,'sdf')
-        p.setStyle({'stick':{}})
-        p.setBackgroundColor('0xeeeeee')
-        p.zoomTo()
-        return p.show()
-
-def MolTo3DView(mol, size=(300, 300), style="stick", surface=False, opacity=0.5):
-    """Draw molecule in 3D
-    
-    Args:
-    ----
-        mol: rdMol, molecule to show
-        size: tuple(int, int), canvas size
-        style: str, type of drawing molecule
-               style can be 'line', 'stick', 'sphere', 'carton'
-        surface, bool, display SAS
-        opacity, float, opacity of surface, range 0.0-1.0
-    Return:
-    ----
-        viewer: py3Dmol.view, a class for constructing embedded 3Dmol.js views in ipython notebooks.
-    """
-    assert style in ('line', 'stick', 'sphere', 'carton')
-    mblock = Chem.MolToMolBlock(mol)
-    viewer = py3Dmol.view(width=size[0], height=size[1])
-    viewer.addModel(mblock, 'mol')
-    viewer.setStyle({style:{}})
-    if surface:
-        viewer.addSurface(py3Dmol.SAS, {'opacity': opacity})
-    viewer.zoomTo()
-    return viewer
-    
-def SmilesToConf(smiles):
-    '''Convert SMILES to rdkit.Mol with 3D coordinates'''
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is not None:
-        mol = Chem.AddHs(mol)
-        AllChem.EmbedMolecule(mol)
-        AllChem.MMFFOptimizeMolecule(mol, maxIters=200)
-        return mol
-    else:
-        return None
-
-from rdkit.Chem import rdDepictor
-from rdkit.Chem.Draw import rdMolDraw2D
-def moldrawsvg(mol, molSize=(400,300), kekulize=True):
-    mc = Chem.Mol(mol.ToBinary())
-    if kekulize:
-        try:
-            Chem.Kekulize(mc)
-        except:
-            mc = Chem.Mol( mol.ToBinary() )
-    if not mc.GetNumConformers():
-        rdDepictor.Compute2DCoords(mc)
-    drawer = rdMolDraw2D.MolDraw2DSVG(molSize[0], molSize[1])
-    drawer.DrawMolecule( mc )
-    drawer.FinishDrawing()
-    svg = drawer.GetDrawingText()
-
-    return svg.replace("svg:","")
-
-def add_atom_idx(mol):
-    for atom in mol.GetAtoms():
-        atom.SetAtomMapNum(atom.GetIdx())
-    return
-
-def remove_atom_idx(mol):
-    for atom in mol.GetAtoms():
-        atom.ClearProp('molAtomMapNumber')
-    return
-    
 
 def custom_capitalize(sentence):
     # Find all acronyms in the sentence

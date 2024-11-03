@@ -11,6 +11,41 @@ rdDepictor.SetPreferCoordGen(True)
 from tools import utils
 
 
+def lipinski_filter(mol):
+    # Filter by Lipinski rules
+    from rdkit.Chem import Crippen, Lipinski, Descriptors
+
+    violations = 0
+    if Lipinski.NumHDonors(mol) > 5: violations += 1
+    if Lipinski.NumHAcceptors(mol) > 10: violations += 1
+    if Descriptors.MolWt(mol) > 500: violations += 1
+    # if Crippen.MolLogP(mol) > 5: violations += 1
+
+    return violations
+
+    # if violations < 2:
+    #     return True
+    # return False
+
+def reos_filter(mol):  
+    # Filter by REOS rules
+    from rdkit.Chem import GetFormalCharge, Lipinski, Descriptors
+
+    violations = 0
+    if not 200 < Descriptors.MolWt(mol) < 500: violations += 1
+    if not -5 < Descriptors.MolLogP(mol) < 5: violations += 1
+    if not 15 < mol.GetNumHeavyAtoms() < 50: violations += 1
+    if not -2 < GetFormalCharge(mol) < 2: violations += 1
+
+    if Lipinski.NumHDonors(mol) > 5: violations += 1
+    if Lipinski.NumHAcceptors(mol) > 10: violations += 1
+    if Descriptors.NumRotatableBonds(mol) > 8: violations += 1
+
+    if violations < 2:
+        return True
+    return False
+
+
 def get_ringlinkers(probe_info, df_ringlink):
     # Filter rings by distance
     ringlink_mols, ringlink_info = [], []
@@ -126,101 +161,7 @@ def prepare_linkers(multiplet_mol, df_linkers, n_linkers=None):
     return linker_mols
 
 
-
-def lipinski_filter(mol):
-    # Filter by Lipinski rules
-    from rdkit.Chem import Crippen, Lipinski, Descriptors
-
-    violations = 0
-    if Lipinski.NumHDonors(mol) > 5: violations += 1
-    if Lipinski.NumHAcceptors(mol) > 10: violations += 1
-    if Descriptors.MolWt(mol) > 500: violations += 1
-    # if Crippen.MolLogP(mol) > 5: violations += 1
-
-    return violations
-
-    # if violations < 2:
-    #     return True
-    # return False
-
-def reos_filter(mol):  
-    # Filter by REOS rules
-    from rdkit.Chem import GetFormalCharge, Lipinski, Descriptors
-
-    violations = 0
-    if not 200 < Descriptors.MolWt(mol) < 500: violations += 1
-    if not -5 < Descriptors.MolLogP(mol) < 5: violations += 1
-    if not 15 < mol.GetNumHeavyAtoms() < 50: violations += 1
-    if not -2 < GetFormalCharge(mol) < 2: violations += 1
-
-    if Lipinski.NumHDonors(mol) > 5: violations += 1
-    if Lipinski.NumHAcceptors(mol) > 10: violations += 1
-    if Descriptors.NumRotatableBonds(mol) > 8: violations += 1
-
-    if violations < 2:
-        return True
-    return False
-
 def join_fragments(multip_mol, linker_mols):
-
-    # This option replaces dummies with a copy of the same fragment
-    # if not probe_info and not linker_info and len(multip_mol) == 1:
-
-    #     # Add labels to atoms to keep track after mol combination
-    #     probe_dummies = []
-    #     for mol in multip_mol + linker_mols:
-    #         for atom in mol.GetAtoms():
-    #             neigh_dummies = [str(n.GetIdx()) for n in atom.GetNeighbors() if n.GetSymbol() == '*']
-    #             if len(neigh_dummies) == 1:
-    #                 atom.SetProp('_neigh', neigh_dummies[0])
-    #                 atom.SetProp('_newbond', 'True')
-    #             elif len(neigh_dummies) > 1:
-    #                 atom.SetProp('_neigh', '_'.join(neigh_dummies))
-    #                 atom.SetProp('_newbond', 'True')
-    #             # Put the following outside "else" statements to avoid property overwritig
-    #             if not atom.HasProp('_neigh'):
-    #                 atom.SetProp('_neigh', '.')
-    #             if not atom.HasProp('_newbond'):
-    #                 atom.SetProp('_newbond', 'False')
-
-    #             if mol in multip_mol:
-    #                 atom.SetProp('_label', 'P')
-    #                 if atom.GetSymbol() == '*':
-    #                     probe_dummies.append(atom.GetIdx())
-    #             else:
-    #                 atom.SetProp('_label', 'L')
-
-    #     all_mols = multip_mol + linker_mols*len(probe_dummies)
-
-    #     combo_mol = reduce(Chem.CombineMols, all_mols)
-    #     combo_dummies = [a.GetIdx() for a in combo_mol.GetAtoms() if a.GetSymbol() == '*']
-    #     new_probe_dummies = [x for x in combo_dummies if combo_mol.GetAtomWithIdx(x).GetProp('_label') == 'P']
-    #     new_linker_dummies = [x for x in combo_dummies if x not in new_probe_dummies]
-
-    #     new_probe_neighs = [n.GetIdx() for a in new_probe_dummies for n in combo_mol.GetAtomWithIdx(a).GetNeighbors()]
-    #     new_linker_neighs = [n.GetIdx() for a in new_linker_dummies for n in combo_mol.GetAtomWithIdx(a).GetNeighbors()]
-    #     # new_probe_neighs = [n for n in new_probe_neighs if combo_mol.GetAtomWithIdx(n).GetAtomicNum() != 1]
-    #     # new_linker_neighs = [n for n in new_linker_neighs if combo_mol.GetAtomWithIdx(n).GetAtomicNum() != 1]
-
-    #     rwMol = Chem.RWMol(combo_mol)
-    #     for a, b in zip(new_probe_neighs, new_linker_neighs):
-    #         rwMol.AddBond(a, b, order=Chem.rdchem.BondType.SINGLE)
-    #         # rwMol.GetAtomWithIdx(a).SetNumExplicitHs(0)
-    #         # rwMol.GetAtomWithIdx(b).SetNumExplicitHs(0)
-
-    #     dummy_list = [a.GetIdx() for a in rwMol.GetAtoms() if a.GetSymbol() == '*']
-    #     for dummy in sorted(dummy_list, reverse=True):
-    #         rwMol.RemoveAtom(dummy)
-
-    #     rwMol = Chem.RemoveHs(rwMol)
-    #     Chem.rdmolops.SanitizeFlags.SANITIZE_NONE
-    #     Chem.SanitizeMol(rwMol)
-
-    #     # Reset coordinates for display
-    #     rdDepictor.Compute2DCoords(rwMol)
-    #     rdDepictor.StraightenDepiction(rwMol)
-
-    #     return Chem.Mol(rwMol)
 
     joined_mols, out_smiles = [], []
     for combo_linkers in product(*linker_mols):
@@ -237,7 +178,6 @@ def join_fragments(multip_mol, linker_mols):
         # Add linkers to multiplet
         mols = [multip_mol] + list(combo_linkers)
         combo_mol = reduce(Chem.CombineMols, mols)
-        # print([lipinski_filter(Chem.MolFromSmiles(x)) for x in Chem.MolToSmiles(combo_mol).split('.')])
 
         # Associate probe pairs with linkers (P1, P2): (L1, L2)
         multip_dummies = [tuple(x[:2]) for x in eval(multip_mol.GetProp('_info'))]

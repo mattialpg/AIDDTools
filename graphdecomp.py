@@ -15,6 +15,8 @@ import networkx as nx
 from copy import deepcopy
 from rdkit.Chem import rdDepictor
 
+from CADDTools import molecular_methods as MolMtd
+
 # SMARTS atomic environments for molecule fragmentation
 environDefs = {
     'L1':  '[C;D3]([#0,#6,#7,#8])(=O)',  # Acyl –C(=O)– pattern
@@ -534,7 +536,6 @@ def GraphDecomp(mol, maxBlocks=8, maxSR=6, keep_AtomMapNumber=True, keep_connect
 
     return copy_blocks
 
-from tools import general_methods as GenMtd
 def remove_NIG(mol, interacting_atoms):
     """ NIG = Non-Interacting Groups """
     K = Chem.MolFromSmiles('[99*]'); D = Chem.MolFromSmiles('*')
@@ -542,7 +543,7 @@ def remove_NIG(mol, interacting_atoms):
         # Fragment molecule
         cmol = deepcopy(mol)
         ring_atoms = sorted(set(flatten(cmol.GetRingInfo().AtomRings())), reverse=True)
-        qmol = GenMtd.replace_dummies(cmol)  # Remove dummies if any
+        qmol = MolMtd.replace_dummies(cmol)  # Remove dummies if any
         map = list(cmol.GetSubstructMatch(qmol))
         blocks = GraphDecomp(qmol, maxBlocks=1, keep_AtomMapNumber=True)
 
