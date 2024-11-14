@@ -660,7 +660,10 @@ def create_bonds(mol, dummy_pairs):
 
 
 def neutralize_atoms(mol):
-    """ https://baoilleach.blogspot.com/2019/12/no-charge-simple-approach-to.html """
+    """
+    # https://baoilleach.blogspot.com/2019/12/no-charge-simple-approach-to.html
+    """
+
     pattern = Chem.MolFromSmarts("[+1!h0!$([*]~[-1,-2,-3,-4]),-1!$([*]~[+1,+2,+3,+4])]")
     at_matches = mol.GetSubstructMatches(pattern)
     at_matches_list = [y[0] for y in at_matches]
