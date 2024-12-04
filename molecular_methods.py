@@ -661,20 +661,18 @@ def create_bonds(mol, dummy_pairs):
 
 def neutralize_atoms(mol):
     """
-    # https://baoilleach.blogspot.com/2019/12/no-charge-simple-approach-to.html
+    https://baoilleach.blogspot.com/2019/12/no-charge-simple-approach-to.html
+    # NOTES: +1 charged atoms must have a hydrogen, or we can't remove H+
+    # NOTES: we must check neighbor atom charges to avoid altering groups with charge-separated representations (e.g. nitro)
     """
 
-    pattern = Chem.MolFromSmarts("[+1!h0!$([*]~[-1,-2,-3,-4]),-1!$([*]~[+1,+2,+3,+4])]")
-    at_matches = mol.GetSubstructMatches(pattern)
-    at_matches_list = [y[0] for y in at_matches]
-    if len(at_matches_list) > 0:
-        for at_idx in at_matches_list:
-            atom = mol.GetAtomWithIdx(at_idx)
-            chg = atom.GetFormalCharge()
-            hcount = atom.GetTotalNumHs()
-            atom.SetFormalCharge(0)
-            atom.SetNumExplicitHs(hcount - chg)
-            atom.UpdatePropertyCache()
+    pattern = Chem.MolFromSmarts("[+1!H0!$([-1,-2,-3,-4]),-1!$([+1,+2,+3,+4])]")
+    matches = [x[0] for x in mol.GetSubstructMatches(pattern)]
+    for match in matches:
+        atom = mol.GetAtomWithIdx(match)
+        atom.SetNumExplicitHs(atom.GetTotalNumHs() - atom.GetFormalCharge())
+        atom.SetFormalCharge(0)
+        atom.UpdatePropertyCache()
     del mol.__sssAtoms
     return mol
 
@@ -719,3 +717,10 @@ def moldrawsvg(mol, molSize=(400,300), kekulize=True):
     svg = drawer.GetDrawingText()
 
     return svg.replace("svg:","")
+
+import requests
+from IPython.display import Image
+def smartsview(query):
+    url = f"https://smarts.plus/smartsview/download_rest?smarts={query}"
+    res = requests.get(url)
+    return Image(res.content, width=700)

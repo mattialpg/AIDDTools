@@ -74,8 +74,7 @@ module_dict = {
     'WalkCount': ['MWC01', 'MWC02', 'MWC03', 'MWC04', 'MWC05', 'MWC06', 'MWC07', 'MWC08', 'MWC09', 'MWC10', 'TMWC10', 'SRW02', 'SRW03', 'SRW04', 'SRW05', 'SRW06', 'SRW07', 'SRW08', 'SRW09', 'SRW10', 'TSRW10'],
     'Weight': ['MW', 'AMW'],
     'WienerIndex': ['WPath', 'WPol'],
-    'ZagrebIndex': ['Zagreb1', 'Zagreb2', 'mZagreb1', 'mZagreb2']
-            }
+    'ZagrebIndex': ['Zagreb1', 'Zagreb2', 'mZagreb1', 'mZagreb2']}
 
 def calc_descriptors(mols, descriptor_list=None):
     #TODO: Maybe subdivide calculation into chunks of n descriptors

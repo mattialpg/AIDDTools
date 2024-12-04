@@ -29,14 +29,12 @@ requests_cache.install_cache('rcsb_pdb', backend='memory')
 #         return asyncio.get_event_loop().run_in_executor(None, f, *args, **kwargs)
 #     return wrapped
 
-def get_compound(entry, server, dbdir, verbose=False):
+def get_compound(entry, server, dbdir):
     """
         Entry is in the format 'namespace:id' (e.g. 'rc:RC00304')
         Parse local file or get from the server
     """
     namespace, identifier = entry.split(':')
-    filename = f"{identifier}.{namespace}"
-    file_path = f"{dbdir}/{filename}"
 
     not_found = []
 
@@ -44,9 +42,8 @@ def get_compound(entry, server, dbdir, verbose=False):
         """
             namespace: [cid, name, smiles, sdf, inchi, inchikey, formula]
         """
-        if not os.path.exists(file_path) or namespace != 'cid':
+        if not os.path.exists(f"{dbdir}/{identifier}.{namespace}") or namespace != 'cid':
             try:
-                if verbose: print('Downloading file...')
                 url = f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/{namespace}/{identifier}/JSON'
                 resp = requests.get(url)
                 cid = resp.json()['PC_Compounds'][0]['id']['id']['cid']
@@ -56,7 +53,6 @@ def get_compound(entry, server, dbdir, verbose=False):
                 not_found.append(entry)
                 return {}
 
-        if verbose: print('Reading file...')
         content = json.load(open(f"{dbdir}/{cid}.cid", 'r'))
         comp = pcp.Compound(content['PC_Compounds'][0])
         dict_data = {'cid': str(comp.cid),
@@ -74,12 +70,12 @@ def get_compound(entry, server, dbdir, verbose=False):
         rest = singleton.rest        # Access REST instance
 
         try:
-            with open(f"{dbdir}/{filename}", 'r') as text:
+            with open(f"{dbdir}/{identifier}.{namespace}", 'r') as text:
                 dict_data = kegg.parse(text.read())
             if verbose: print('Reading file...')
         except:  # Download from server
             kegg_entry = rest.kegg_get(entry).read()
-            with open(f"{dbdir}/{filename}", 'w', encoding='utf-8') as file:
+            with open(f"{dbdir}/{identifier}.{namespace}", 'w', encoding='utf-8') as file:
                 file.write(kegg_entry)
                 dict_data = kegg.parse(kegg_entry)
             if verbose: print('Downloading file...')
