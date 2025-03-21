@@ -1,6 +1,13 @@
 import os, time, sys, glob
-import asyncio, requests
+import requests
 from urllib.request import urlretrieve
+
+import aiofile, aiohttp
+import random
+import socket
+import asyncio, nest_asyncio
+# Apply nest_asyncio to avoid RuntimeError in Jupyter
+nest_asyncio.apply()
 
 import numpy as np
 import pandas as pd
@@ -313,29 +320,12 @@ def async_get_info(urls):
     info = asyncio.run(main())
     return info
 
-def async_download_files(urls, format='txt', outdir='.', fname_sep="/", fnames=None):
+
+
+async def async_download_files(urls, format='txt', outdir='.', fname_sep="/", fnames=None):
     user_agents = [
-        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/22.0.1207.1 Safari/537.1",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:55.0) Gecko/20100101 Firefox/55.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.101 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/22.0.1207.1 Safari/537.1",
-        "Mozilla/5.0 (X11; CrOS i686 2268.111.0) AppleWebKit/536.11 (KHTML, like Gecko) Chrome/20.0.1132.57 Safari/536.11",
-        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.6 (KHTML, like Gecko) Chrome/20.0.1092.0 Safari/536.6",
-        "Mozilla/5.0 (Windows NT 6.0) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.36 Safari/536.5",
-        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1063.0 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 5.1) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1063.0 Safari/536.3",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_0) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1063.0 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1062.0 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1062.0 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.1 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.1 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.1 Safari/536.3",
-        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.6 (KHTML, like Gecko) Chrome/20.0.1090.0 Safari/536.6",
-        "Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/19.77.34.5 Safari/537.1",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.9 Safari/536.5",
-        "Mozilla/5.0 (Windows NT 6.2) AppleWebKit/536.3 (KHTML, like Gecko) Chrome/19.0.1061.0 Safari/536.3",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.24 (KHTML, like Gecko) Chrome/19.0.1055.1 Safari/535.24",
-        "Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/535.24 (KHTML, like Gecko) Chrome/19.0.1055.1 Safari/535.24"]
+        "Mozilla/5.0 ...",  # Keep all your user agents here
+    ]
 
     async def fetch_file(session, semaphore, url, fname):
         try:
@@ -348,46 +338,27 @@ def async_download_files(urls, format='txt', outdir='.', fname_sep="/", fnames=N
                     data = await resp.json()
                     async with aiofile.async_open(f"{outdir}/{fname}.json", 'w') as outfile:
                         await outfile.write(json.dumps(data, indent=2))
-                elif format == 'xml':
+                else:
                     data = await resp.read()
                     async with aiofile.async_open(f"{outdir}/{fname}.{format}", 'wb') as outfile:
                         await outfile.write(data)
-                elif format == 'cif':
-                    data = await resp.read()
-                    async with aiofile.async_open(f"{outdir}/{fname}", 'wb') as outfile:
-                        await outfile.write(data)
-                else:
-                    data = await resp.read().decode('UTF-8')
-                    async with aiofile.async_open(f"{outdir}/{fname}.txt", 'w') as outfile:
-                        await outfile.write(data)
                 print(f"*** [Downloading] File {fname} has been fetched ***")
         except Exception as exc:
-            print(f"*** [Error] File {fname} cannot be fetched: {exc} ***", end='\x1b[1K\r')
-            # with open(f"{outdir}/.skipped.txt", 'a'):
-
+            print(f"*** [Error] File {fname} cannot be fetched: {exc} ***")
 
     async def main():
-        try:
-            os.makedirs(outdir, exist_ok=True)
-            semaphore = asyncio.BoundedSemaphore(100)  #3
-            # connector = aiohttp.TCPConnector(limit_per_host=5)  # Number of simultaneous connections
-            connector = aiohttp.TCPConnector(family=socket.AF_INET)  # Number of simultaneous connections
+        os.makedirs(outdir, exist_ok=True)
+        semaphore = asyncio.BoundedSemaphore(100)
+        connector = aiohttp.TCPConnector(family=socket.AF_INET)
 
-            async with aiohttp.ClientSession(connector=connector) as session:
-                if fnames:
-                    for url, fname in tzip(urls, fnames, desc="Downloading Files"):
-                        await fetch_file(session, semaphore, url, fname)
-                        await asyncio.sleep(.1)  # Add delay between downloads
-                else:
-                    for url in tqdm(urls, desc="Downloading Files"):
-                        await fetch_file(session, semaphore, url, fname=None)
-                        await asyncio.sleep(.1)  # Add delay between downloads
-        except: pass
+        async with aiohttp.ClientSession(connector=connector) as session:
+            tasks = [
+                fetch_file(session, semaphore, url, fnames[i] if fnames else None)
+                for i, url in enumerate(urls)
+            ]
+            await asyncio.gather(*tasks)
 
-    # Run the event loop
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+    await main()
 
 
 def download_chembl(chembl_id, outdir, info='comp'):

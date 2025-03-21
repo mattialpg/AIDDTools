@@ -16,3 +16,10 @@ for confid in confids:
     coord_1 = np.array(outmol.GetConformer(confid).GetAtomPosition(dummy_2))
     dists.append(float(pdist(np.vstack((coord_0, coord_1))).round(3)))
 print(dists)
+
+# Adjust dummy query properties
+q = Chem.AdjustQueryParameters()
+q.makeDummiesQueries = True
+frag_docked = Chem.AdjustQueryProperties(frag_docked, q)
+frag_mol = Chem.AdjustQueryProperties(frag_mol, q)
+dummies_docked = [frag_docked.GetSubstructMatch(frag_mol)[i] for i in dummies]

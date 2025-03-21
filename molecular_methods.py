@@ -12,8 +12,13 @@ from itertools import combinations
 from functools import reduce
 
 from rdkit import Chem
-from rdkit.Chem import Draw, AllChem, rdDepictor
+from rdkit.Chem import rdFMCS
+from rdkit.Chem import Draw, AllChem
+
 from rdkit.Chem.Draw import rdMolDraw2D
+from rdkit.Chem.Draw import rdDepictor
+# rdDepictor.SetPreferCoordGen(True)
+
 # from openmm.app import PDBFile
 # from pdbfixer import PDBFixer
 # from openbabel import openbabel
@@ -64,16 +69,29 @@ def export_mol(mol, outfile, addHs=False, verbose=False):
         print(f"*** Succesfully exported {outfile} ***")
         
 
-# def draw_mols(mols, filename=None, align=False):
+def draw_mols(mols, filename=None, align=False):
 
-#     # from rdkit.Chem import rdCoordGen
-#     # mols = []
-#     # for smi in df.SMILES:
-#         # mol = Chem.MolFromSmiles(smi)
-#         # mols.append(mol)
-#         # # AllChem.Compute2DCoords(mol)
-#         # ##OR##
-#         # rdCoordGen.AddCoords(mol)
+    if align == 'MCS':
+        mcs = rdFMCS.FindMCS(mols)
+        template = Chem.MolFromSmarts(mcs.smartsString)
+        AllChem.Compute2DCoords(template)
+
+        for mol in mols:
+            AllChem.GenerateDepictionMatching2DStructure(mol, template)
+
+    if not filename:
+        img = Draw.MolsToGridImage(mols, molsPerRow=5, subImgSize=(300,200),
+                                   returnPNG=False)
+        display(img)#.show()
+
+    # from rdkit.Chem import rdCoordGen
+    # mols = []
+    # for smi in df.SMILES:
+    #     mol = Chem.MolFromSmiles(smi)
+    #     mols.append(mol)
+    #     # AllChem.Compute2DCoords(mol)
+    #     ##OR##
+    #     rdCoordGen.AddCoords(mol)
 
 #     # # Condense functional groups (e.g. -CF3, -AcOH)
 #     # abbrevs = rdAbbreviations.GetDefaultAbbreviations()
@@ -90,7 +108,6 @@ def export_mol(mol, outfile, addHs=False, verbose=False):
 #         # plot = Draw.MolsToGridImage([mol, scaffold, generic], legends=['Compound', 'BM scaffold', 'Graph framework'], 
 #                 # molsPerRow=3, subImgSize=(600,600)); plot.show()
 
-#     if align is True:
 #         # Perform match with a direct substructure m1
 #         m1 = Chem.MolFromSmiles('CC1=CC=C(C=C1)C(C)C')
 #         sub1 = [mol for mol in mols if mol.HasSubstructMatch(m1)]
@@ -172,7 +189,7 @@ def mol2svg(mol):
 
 
 import py3Dmol
-def drawit(mol, confId=-1):
+def drawit(mol, confId=-1, label_dict=None):
     """Draw molecule in 3D
     
     Args:
@@ -187,30 +204,36 @@ def drawit(mol, confId=-1):
     ----
         viewer: py3Dmol.view, a class for constructing embedded 3Dmol.js views in ipython notebooks.
     """
-    p = py3Dmol.view(width=700, height=450)
-    p.removeAllModels()
-    p.addModel(Chem.MolToMolBlock(mol, confId=confId),'sdf')
-    p.setStyle({'stick':{}})
-    p.setBackgroundColor('0xeeeeee')
-    p.zoomTo()
-    return p.show()
+
+    view = py3Dmol.view(width=700, height=450)
+    view.removeAllModels()
+    view.addModel(Chem.MolToMolBlock(mol, confId=confId),'sdf')
+    view.setStyle({'stick':{}})
+    view.setBackgroundColor('0xeeeeee')
+    view.zoomTo()
+
+    if label_dict:
+        for k, v in label_dict.items():
+            view.addLabel(k, {"position":{"x":v[0],"y":v[1],"z":v[2]}, "fontSize": 12})
+
+    return view.show()
 
 # from ipywidgets import interact, fixed  #<-- this gives `JUPYTER_PLATFORM_DIRS=1` error
 # def drawit_slider(mol):    
-#     p = py3Dmol.view(width=700, height=450)
-#     interact(drawit, mol=fixed(mol), p=fixed(p), confId=(0, mol.GetNumConformers()-1))
+#     view = py3Dmol.view(width=700, height=450)
+#     interact(drawit, mol=fixed(mol), view=fixed(view), confId=(0, mol.GetNumConformers()-1))
 
 def drawit_bundle(mol, confIds=None):
-    p = py3Dmol.view(width=700, height=450)
-    p.removeAllModels()
+    view = py3Dmol.view(width=700, height=450)
+    view.removeAllModels()
 
     if not confIds: confIds = range(mol.GetNumConformers())
     for confId in confIds:
-        p.addModel(Chem.MolToMolBlock(mol, confId=confId), 'sdf')
-    p.setStyle({'stick':{}})
-    p.setBackgroundColor('0xeeeeee')
-    p.zoomTo()
-    return p.show()
+        view.addModel(Chem.MolToMolBlock(mol, confId=confId), 'sdf')
+    view.setStyle({'stick':{}})
+    view.setBackgroundColor('0xeeeeee')
+    view.zoomTo()
+    return view.show()
 
 def show_atom_indices(mols, label='atomNote', prop=None):
     "label: [atomNote, molAtomMapNumber]"
@@ -259,7 +282,7 @@ def reset_view(mol):
     rdDepictor.Compute2DCoords(mol)
     rdDepictor.StraightenDepiction(mol)
     # Delete substructure highlighting
-    del mol.__sssAtoms
+    # del mol.__sssAtoms
     return mol
 
 ## Comment miniconda3/envs/my-chem/Lib/site-packages/prody/proteins/pdbfile.py, lines 314-316
@@ -294,16 +317,27 @@ def replace_dummies(mol, replace_with='H', keep_info=True):
     elif replace_with == 'H':
         for dummy in sorted(dummies, reverse=True):
             # rwMol.RemoveAtom(dummy)
-            rwMol.ReplaceAtom(dummy, Chem.Atom(1))
-            # rwMol.GetAtomWithIdx(a).SetNumExplicitHs(0)
+            # rwMol.ReplaceAtom(dummy, Chem.Atom(1))
+            rwMol.GetAtomWithIdx(dummy).SetAtomicNum(1)
+            rwMol.GetAtomWithIdx(dummy).GetNeighbors()[0].SetNumExplicitHs(0)
             # Chem.AddHs(rwMol)
     else:
         h = Chem.GetPeriodicTable().GetAtomicNumber(replace_with)
-        for dummy in sorted(dummies, reverse=True):
-            # rwMol.ReplaceAtom(atom.GetIdx(), Chem.Atom(h))
-            rwMol.GetAtomWithIdx(dummy).SetAtomicNum(h)
-    rwMol = Chem.RemoveHs(rwMol)
-    Chem.SanitizeMol(rwMol)
+        try:
+            for dummy in sorted(dummies, reverse=True):
+                rwMol.GetAtomWithIdx(dummy).SetAtomicNum(h)
+            rwMol = Chem.RemoveHs(rwMol)
+            Chem.SanitizeMol(rwMol)
+        except Chem.AtomValenceException:
+            # Force replacement with single bond
+            for dummy in sorted(dummies, reverse=True):
+                bond = rwMol.GetAtomWithIdx(dummy).GetBonds()[0]
+                bond.SetBondType(Chem.BondType.SINGLE)
+                rwMol.GetAtomWithIdx(dummy).SetAtomicNum(h)
+                # rwMol.ReplaceAtom(atom.GetIdx(), Chem.Atom(h))
+            rwMol = Chem.RemoveHs(rwMol)
+            Chem.SanitizeMol(rwMol)
+
     return Chem.Mol(rwMol)
 
 
@@ -362,7 +396,7 @@ def dist_between_dummies(mol, numConfs=100, replace_with='C'):
             dists = [AllChem.GetBondLength(conf, dummy_1, dummy_2) for conf in outmol.GetConformers()]
             dist_dict[(int(outmol.GetAtomWithIdx(dummy_1).GetProp('old_idx')),
                     int(outmol.GetAtomWithIdx(dummy_2).GetProp('old_idx')))]\
-                    = (round(min(dists), 3), round(max(dists), 3))
+                    = (round(min(dists), 2), round(max(dists), 2))
         return dist_dict
     
     except Exception as exc:
@@ -571,10 +605,13 @@ def get_dummy_neighbor_idxs(mol):
 
 
 def canonicalize(obj):
-    if isinstance(obj, Chem.Mol):
-        return Chem.MolFromSmiles(Chem.MolToSmiles(obj))
-    elif isinstance(obj, str):
-        return Chem.MolToSmiles(Chem.MolFromSmiles(obj))
+    try:
+        if isinstance(obj, Chem.Mol):
+            return Chem.MolFromSmiles(Chem.MolToSmiles(obj))
+        elif isinstance(obj, str):
+            return Chem.MolToSmiles(Chem.MolFromSmiles(obj))
+    except:
+        return obj
     
 
 def lipinski_filter(mol):
