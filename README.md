@@ -29,4 +29,4 @@ Streamline your small molecule rational design workflows with practical examples
 Your feedback helps improve this repository! Feel free to open an issue or submit a pull request with your suggestions, questions or contributions.
 
 # License
-This repository is open-source under the MIT License.
+This project is licensed under the [GNU GPL v3 license](https://www.gnu.org/licenses/gpl-3.0.txt).
