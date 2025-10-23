@@ -1,13 +1,15 @@
+import warnings, os, sys
 import numpy as np
+from sklearn.decomposition import PCA
+from tqdm.auto import tqdm
+
 from rdkit import Chem
 from rdkit import DataStructs
-from rdkit.Chem import AllChem
-from rdkit.Chem import MACCSkeys
-from rdkit.Chem import rdFingerprintGenerator
-from rdkit.Chem import rdMHFPFingerprint
-from sklearn.decomposition import PCA
-from .map4 import MAP4Calculator
-import tmap as tm
+from rdkit.Chem import MACCSkeys, rdFingerprintGenerator
+from rdkit.Avalon import pyAvalonTools
+from rdkit.Chem.rdMHFPFingerprint import MHFPEncoder
+from rdkit.Chem.AtomPairs import Pairs, Torsions
+
 
 """
     When using map4 for machine learning, a custom kernel (or a custom loss function) is needed because the similarity between
@@ -17,69 +19,98 @@ import tmap as tm
     Other ideas from: https://github.com/MunibaFaiza/tanimoto_similarities/blob/main/tanimoto_similarities.py    
 """
 
-# Lazy initialization with a cache
+# Cache to store fingerprint generators
 _cache_fp = {}
 
-def calculate_fp(mol, method='morgan2', nBits=2048, pca=False, save=False):
-    if 'morgan' in method:
-        n = int(method.split('morgan')[1])
-        return AllChem.GetMorganFingerprintAsBitVect(mol, n, nBits)
+def fp_to_numpy(fp, nBits=None):
+    """Convert RDKit fingerprint (ExplicitBitVect or SparseIntVect) to numpy array."""
+    if nBits is None:
+        nBits = fp.GetNumBits()
+    arr = np.zeros((nBits,), dtype=int)
+    DataStructs.ConvertToNumpyArray(fp, arr)
+    return arr
 
+
+def calculate_fp(mol, method='morgan2', nBits=2048, pca=False, as_numpy=False):
+    method = method.lower()
+    key = (method, nBits)
+
+    # Morgan/ECFP
+    if method.startswith(('morgan', 'ecfp')):
+        radius = int(method.replace('morgan', '').replace('ecfp', ''))
+        if key not in _cache_fp:
+            _cache_fp[key] = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=nBits)
+        fp = _cache_fp[key].GetFingerprint(mol)
+        return fp_to_numpy(fp, nBits) if as_numpy else fp
+
+    # MACCS
     elif method == 'maccs':
-        return MACCSkeys.GenMACCSKeys(mol)
+        fp = MACCSkeys.GenMACCSKeys(mol)
+        return fp_to_numpy(fp, fp.GetNumBits()) if as_numpy else fp
 
+    # RDKit topological
     elif method == 'rdkit':
-        return AllChem.RDKFingerprint(mol)
+        if key not in _cache_fp:
+            _cache_fp[key] = rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=nBits)
+        fp = _cache_fp[key].GetFingerprint(mol)
+        return fp_to_numpy(fp, nBits) if as_numpy else fp
 
+    # AtomPair
+    elif method == 'atompair':
+        if key not in _cache_fp:
+            _cache_fp[key] = rdFingerprintGenerator.GetAtomPairGenerator(fpSize=nBits)
+        fp = _cache_fp[key].GetFingerprint(mol)
+        return fp_to_numpy(fp, nBits) if as_numpy else fp
+
+    # Topological torsion
+    elif method in ['topotorsion', 'torsion']:
+        if key not in _cache_fp:
+            _cache_fp[key] = rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=nBits)
+        fp = _cache_fp[key].GetFingerprint(mol)
+        return fp_to_numpy(fp, nBits) if as_numpy else fp
+
+    # Avalon
+    elif method == 'avalon':
+        fp = pyAvalonTools.GetAvalonFP(mol, nBits)
+        return fp_to_numpy(fp, nBits) if as_numpy else fp
+
+    # MAP4
     elif method == 'map4':
-        # if nBits not in _cache_fp:
-        _cache_fp[nBits] = MAP4Calculator(nBits)
-        map4 = _cache_fp[nBits]
-        return map4.calculate(mol)
+        from map4 import MAP4Calculator
+        if key not in _cache_fp:
+            _cache_fp[key] = MAP4Calculator(nBits)
+        fp = _cache_fp[key].calculate(mol)
+        return np.array(fp) if as_numpy else fp
 
-    elif method == 'mhfp':
-        if nBits not in _cache_fp:
-            _cache_fp[nBits] = Chem.rdMHFPFingerprint.MHFPEncoder(nBits)
-            mhfp = _cache_fp[nBits]
-        return mhfp.EncodeMol(mol, isomeric=True)
+    # MHFP
+    elif method in ['mhfp', 'mhfp6']:
+        if key not in _cache_fp:
+            from mhfp.encoder import MHFPEncoder
+            _cache_fp[key] = MHFPEncoder(nBits)
+        fp = _cache_fp[key].EncodeMol(mol, isomeric=False)
+        return np.array(fp) if as_numpy else fp
 
-    elif method == 'torsion':
-        # if nBits not in _cache_fp:
-        _cache_fp[nBits] = rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048, countSimulation=False)
-        gttg = _cache_fp[nBits]
-        return gttg.GetCountFingerprint(mol)
+    # HLFP
+    elif method == 'hl':
+        from . import HLFP_generation as HLFP
+        res = HLFP.mol2local(mol, onehot=True, pca=True)
+        atom_pca = np.array(res.f_atoms_pca)
+        bond_pca = np.array(res.f_bonds_pca)
+        fp = np.concatenate((atom_pca, bond_pca), axis=1)
+        if pca:
+            second_pca = PCA(n_components=50)
+            fp = second_pca.fit_transform(fp)
+        return fp if as_numpy else res  # return raw HLFP object if requested
 
-    # elif method == 'hl':
-    #     # Return np.array, not list!!
-    #     # Calculate Hadipour-Liu fingerprint
-    #     res = HLFP.mol2local(mol, onehot=True, pca=True)
-    #     # if pca:
-    #     atom_pca = np.array(res.f_atoms_pca)
-    #     bond_pca = np.array(res.f_bonds_pca)
-    #     fp = np.concatenate((atom_pca, bond_pca), axis=1)
-    #     print(fp)
-        # second_pca = PCA(n_components = 50) 
-        # fp = second_pca.fit_transform(fp)
-        # # else:
-        # #     atom = np.array(res.f_atoms)
-        # #     bond = np.array(res.f_bonds)
-        # #     fp = atom
-        #     # fp = np.concatenate((atom, bond), axis=1)
+    # Biosynfoni
+    elif method == 'biosynfoni':
+        from biosynfoni import Biosynfoni
+        fp = Biosynfoni(mol).fingerprint
+        return np.array(fp) if as_numpy else fp
 
-    # if save is True:
-    #     FP64 = FPs_list.ToBase64()
-    #     open(method + '.fp64','a').write(FP64 + '\n')
     else:
-        return None
+        raise ValueError(f"Unknown fingerprint method: {method}")
 
-# def read_fp64(filename):
-#     df = pd.read_csv(filename, sep=';\n', header=None, engine='python', names=['FP64'])
-#     list_FP = []
-#     for fp in df['FP64']:
-#         fp_from_base64 = ExplicitBitVect(nBits)
-#         fp_from_base64.FromBase64(fp)
-#         list_FP.append(fp_from_base64)
-#     return list_FP
 
 def vec2matr(array):
     n = len(array)
@@ -93,48 +124,109 @@ def vec2matr(array):
             counter+=1
     return arr
 
-_cache_sim = {}
 
-def get_similarity(fp1, fp2, method='morgan', nBits=2048):
+def tanimoto_similarity_matrix(fp_matrix1, fp_matrix2=None):
+    """
+    Vectorized Tanimoto similarity for dense fingerprint arrays.
+    """
+    if fp_matrix2 is None:
+        fp_matrix2 = fp_matrix1
+
+    dot = np.dot(fp_matrix1, fp_matrix2.T)
+    a_sum = fp_matrix1.sum(axis=1).reshape(-1, 1)
+    b_sum = fp_matrix2.sum(axis=1).reshape(1, -1)
+    denom = a_sum + b_sum - dot
+    return dot / np.maximum(denom, 1e-9)
+
+
+_cache_sim = {}
+def get_similarity(fp1, fp2, method='morgan2', nBits=2048):
     """
     Calculate similarity between two fingerprints based on the specified method.
     More info at: https://github.com/cosconatilab/PyRMD/blob/main/PyRMD_v1.03.py
     """
+    key = (method, nBits)
 
-    if method in ['morgan2', 'maccs', 'rdkit']:
-        sim = DataStructs.FingerprintSimilarity(fp1, fp2)
+    # Methods using RDKit FingerprintSimilarity (Tanimoto)
+    if method in ['morgan2', 'morgan3', 'maccs', 'rdkit', 'torsion', 'topotorsion', 'avalon', 'atompair']:
+        return round(DataStructs.FingerprintSimilarity(fp1, fp2), 3)
 
     elif method == 'map4':
-        # if nBits not in _cache_sim:
-        _cache_sim[nBits] = tm.Minhash(nBits)
-        enc = _cache_sim[nBits]
-        sim = 1 - enc.get_distance(fp1, fp2)
+        import tmap as tm
+        if key not in _cache_sim:
+            _cache_sim[key] = tm.Minhash(nBits)
+        enc = _cache_sim[key]
+        return round(1 - enc.get_distance(fp1, fp2), 3)
 
-    elif method == 'mhfp':
-        # if nBits not in _cache_sim:
-        _cache_sim[nBits] = Chem.rdMHFPFingerprint.MHFPEncoder(nBits)
-        mhfp = _cache_sim[nBits]
-        sim = 1 - mhfp.Distance(fp1, fp2)
-
-    elif method == 'torsion':
-        sim = DataStructs.TanimotoSimilarity(fp1, fp2)
-
-    else:
-        raise ValueError(f"Unknown method: {method}")
-    return round(sim, 4)
+    elif method in ['mhfp', 'mhfp6']:
+        if key not in _cache_sim:
+            _cache_sim[key] = MHFPEncoder(nBits)
+        mhfp = _cache_sim[key]
+        return round(1 - mhfp.Distance(fp1, fp2), 3)
 
 
-def get_simmatrix(fps_list, method='morgan2', nBits=2048):
-    n = len(fps_list)
-    similarity_matrix = np.zeros((n, n))
+def count_tanimoto(mat1, mat2, block_size=500):
+    """
+    Compute counted (multiset) Tanimoto similarity matrix in blocks with a tqdm progress bar.
+    mat1: shape (n1, d)
+    mat2: shape (n2, d)
+    block_size: number of rows from mat1 to process at a time
+    Returns: (n1, n2) similarity matrix
+    """
+    n1, d = mat1.shape
+    n2 = mat2.shape[0]
+    sim_matrix = np.zeros((n1, n2), dtype=float)
 
-    for i in range(n):
-        for j in range(i, n):  # Only compute upper triangle
-            similarity = get_similarity(fps_list[i], fps_list[j], method=method, nBits=nBits)
-            similarity_matrix[i, j] = similarity
-            similarity_matrix[j, i] = similarity  # Mirror the value for symmetry
+    for start in tqdm(range(0, n1, block_size), desc="Counted Tanimoto", unit="block"):
+        end = min(start + block_size, n1)
+        block1 = mat1[start:end, :, None]   # shape (block, d, 1)
+        block2 = mat2.T[None, :, :]        # shape (1, d, n2)
 
-    return similarity_matrix
+        mins = np.minimum(block1, block2).sum(axis=1)
+        maxs = np.maximum(block1, block2).sum(axis=1)
+        sim_matrix[start:end, :] = np.where(maxs == 0, 0.0, mins / maxs)
+
+    return sim_matrix
+
+
+def get_similarity_matrix(fps_list1, fps_list2=None, method='morgan2', nBits=2048, block_size=500):
+    """
+    Compute similarity matrix between two fingerprint lists.
+    - Binary fingerprints: vectorized Tanimoto
+    - Counted fingerprints: blockwise vectorized Tanimoto with tqdm progress
+    - Other methods: fallback to pairwise get_similarity
+    """
+    if fps_list2 is None:
+        fps_list2 = fps_list1
+
+    binary_methods = {'morgan2', 'morgan3', 'maccs', 'rdkit', 'ecfp2'}
+
+    # Case 1: binary methods (vectorised)
+    if method.lower() in binary_methods:
+        print("\n*** Using vectorized Tanimoto similarity calculation ***\n")
+        mat1 = np.array([fp_to_numpy(fp) for fp in fps_list1])
+        mat2 = mat1 if fps_list1 is fps_list2 else np.array([fp_to_numpy(fp) for fp in fps_list2])
+        sim_mat = tanimoto_similarity_matrix(mat1, mat2)
+        return np.round(sim_mat, 3)
+
+    # Case 2: counted Tanimoto
+    if method.lower() == 'biosynfoni':
+        print("\n*** Using blockwise counted Tanimoto similarity calculation ***\n")
+        mat1 = np.stack(fps_list1.to_numpy(), axis=0).astype(int)
+        mat2 = mat1 if fps_list1 is fps_list2 else np.stack(fps_list2.to_numpy(), axis=0).astype(int)
+        sim_mat = count_tanimoto(mat1, mat2, block_size=block_size)
+        return np.round(sim_mat, 3)
+
+    # Case 3: fallback (other similarity methods)
+    sim_matrix = np.zeros((len(fps_list1), len(fps_list2)))
+    for i in range(len(fps_list1)):
+        for j in range(len(fps_list2)):
+            if fps_list1 is fps_list2 and j < i:
+                sim_matrix[i, j] = sim_matrix[j, i]
+            else:
+                sim = get_similarity(fps_list1[i], fps_list2[j], method=method, nBits=nBits)
+                sim_matrix[i, j] = sim
+    return np.round(sim_matrix, 3)
 
 
 # Plot heatmap

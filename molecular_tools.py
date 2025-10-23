@@ -14,10 +14,10 @@ from functools import reduce
 from rdkit import Chem
 from rdkit.Chem import rdFMCS
 from rdkit.Chem import Draw, AllChem
-
 from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.Chem.Draw import rdDepictor
 # rdDepictor.SetPreferCoordGen(True)
+import py3Dmol
 
 # from openmm.app import PDBFile
 # from pdbfixer import PDBFixer
@@ -188,33 +188,72 @@ def mol2svg(mol):
     return impath
 
 
-import py3Dmol
-def drawit(mol, confId=-1, label_dict=None):
-    """Draw molecule in 3D
-    
-    Args:
-    ----
-        mol: rdMol, molecule to show
-        size: tuple(int, int), canvas size
-        style: str, type of drawing molecule
-               style can be 'line', 'stick', 'sphere', 'carton'
-        surface, bool, display SAS
-        opacity, float, opacity of surface, range 0.0-1.0
-    Return:
-    ----
-        viewer: py3Dmol.view, a class for constructing embedded 3Dmol.js views in ipython notebooks.
+def centroid_of_mol(mol, confId=0):
+    """Return centroid of molecule (numpy array)."""
+    conf = mol.GetConformer(confId)
+    coords = np.array([list(conf.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())])
+    return coords.mean(axis=0)
+
+def translate_mol(mol, offset, confId=0):
+    """Return a copy of mol with all atoms translated by offset (x,y,z)."""
+    mol = Chem.Mol(mol)  # copy
+    conf = mol.GetConformer(confId)
+    for i in range(mol.GetNumAtoms()):
+        pos = conf.GetAtomPosition(i)
+        conf.SetAtomPosition(i, (pos.x+offset[0], pos.y+offset[1], pos.z+offset[2]))
+    return mol
+
+def drawit(mol, confId=-1, label_dict=None, exploded=False, scale=2.0, show_dummy_indices=True):
     """
+    Draw molecule in 3D.
+    
+    Parameters:
+    - mol: RDKit Mol or list of Mols (fragments)
+    - confId: Which conformation to use
+    - label_dict: Optional dict of labels to show {text: [x, y, z]}
+    - exploded: If mol is list of frags, show them exploded radially
+    - scale: Explosion distance
+    - show_dummy_indices: If True, label dummy atoms with their atom indices
+    """
+    if isinstance(mol, list):
+        Mol = reduce(Chem.CombineMols, mol)
+        if exploded:
+            # compute global centroid of whole assembly
+            global_centroid = centroid_of_mol(Mol, confId)
+
+            exploded_frags = []
+            for frag in mol:
+                frag_centroid = centroid_of_mol(frag, confId)
+                vec = frag_centroid - global_centroid
+                if np.linalg.norm(vec) > 1e-6:
+                    vec = vec / np.linalg.norm(vec) * scale
+                exploded_frags.append(translate_mol(frag, vec, confId))
+            Mol = reduce(Chem.CombineMols, exploded_frags)
+        mol = Mol
 
     view = py3Dmol.view(width=700, height=450)
     view.removeAllModels()
-    view.addModel(Chem.MolToMolBlock(mol, confId=confId),'sdf')
-    view.setStyle({'stick':{}})
+    view.addModel(Chem.MolToMolBlock(mol, confId=confId), 'sdf')
+    view.setStyle({'stick': {}})
     view.setBackgroundColor('0xeeeeee')
     view.zoomTo()
 
     if label_dict:
         for k, v in label_dict.items():
-            view.addLabel(k, {"position":{"x":v[0],"y":v[1],"z":v[2]}, "fontSize": 12})
+            view.addLabel(k, {"position": {"x": v[0], "y": v[1], "z": v[2]}, "fontSize": 12})
+
+    if show_dummy_indices:
+        dummies = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 0]
+        neighs = [mol.GetAtomWithIdx(x).GetNeighbors()[0].GetIdx() for x in dummies]
+        conf = mol.GetConformer(confId)
+        for idx in dummies + neighs:
+            pos = conf.GetAtomPosition(idx)
+            view.addLabel(str(idx), {
+                "position": {"x": pos.x, "y": pos.y, "z": pos.z},
+                "fontSize": 12,
+                "backgroundColor": "grey",
+                "borderColor": "black",
+                "inFront": True})
 
     return view.show()
 
@@ -227,7 +266,9 @@ def drawit_bundle(mol, confIds=None):
     view = py3Dmol.view(width=700, height=450)
     view.removeAllModels()
 
-    if not confIds: confIds = range(mol.GetNumConformers())
+    if not confIds:
+        confIds = range(mol.GetNumConformers())
+        
     for confId in confIds:
         view.addModel(Chem.MolToMolBlock(mol, confId=confId), 'sdf')
     view.setStyle({'stick':{}})
@@ -350,9 +391,9 @@ def restore_dummies(mol):
     return rwMol.GetMol()
 
 
-from scipy.spatial.distance import pdist
-def dist_between_dummies(mol, numConfs=100, replace_with='C'):
+def dist_between_dummies(mol, numConfs=None, replace_with='C'):
     try:
+        # --- Replace dummy atoms with specified moiety ---
         dummies = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() == '*']
         if len(dummies) < 2:
             return np.nan
@@ -375,20 +416,27 @@ def dist_between_dummies(mol, numConfs=100, replace_with='C'):
         Chem.SanitizeMol(rwMol)
         Chem.rdmolops.SanitizeFlags.SANITIZE_NONE
         outmol = Chem.Mol(rwMol)
-
-        # smi = Chem.MolToSmiles(Chem.Mol(rwMol))
-        # smi = smi.replace('[CH]', 'C') #<-- Temporarily fixes radical carbons
-        # outmol = Chem.MolFromSmiles(smi)
-        # display(show_atom_indices(outmol))
         
         new_dummies = [a.GetIdx() for a in outmol.GetAtoms() if a.HasProp('old_idx')]
 
-        # Generate conformers
+        # --- Generate conformers ---
         confids = AllChem.EmbedMultipleConfs(outmol, numConfs,
                                             useRandomCoords=True,
                                             randomSeed=2020,
                                             maxAttempts=100,
                                             numThreads=0)
+        
+        # Energy minimization and evaluation
+        conformer_energies = []
+        for conf_id in confids:
+            props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
+            if props is None:
+                continue
+            ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
+            ff.Minimize()
+            energy = float(ff.CalcEnergy())
+            conformer_energies.append((energy, conf_id))
+        print(conformer_energies)
 
         # Calculate distance range between dummy atoms
         dist_dict = {}

@@ -4,7 +4,7 @@ import argparse
 import itertools
 from collections import defaultdict
 
-import tmap as tm
+# import tmap as tm
 import numpy as np
 from mhfp.encoder import MHFPEncoder
 from rdkit import Chem
