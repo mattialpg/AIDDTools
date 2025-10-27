@@ -1,14 +1,15 @@
 """
 This module provides a set of utilities for molecular manipulation and visualization.
 """
-import os, sys, math
+import warnings
+warnings.simplefilter('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
+import os, sys
 import numpy as np
 import pandas as pd
-from urllib import parse
-
-from natsort import natsorted, natsort_keygen
 from copy import deepcopy
-from itertools import combinations
 from functools import reduce
 
 from rdkit import Chem
@@ -16,58 +17,13 @@ from rdkit.Chem import rdFMCS
 from rdkit.Chem import Draw, AllChem
 from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.Chem.Draw import rdDepictor
-# rdDepictor.SetPreferCoordGen(True)
+rdDepictor.SetPreferCoordGen(True)
 import py3Dmol
 
 # from openmm.app import PDBFile
 # from pdbfixer import PDBFixer
 # from openbabel import openbabel
 
-# import seaborn as sns
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-
-# Suppress warnings
-import warnings
-warnings.simplefilter('ignore')
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=DeprecationWarning)
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from utils import *
-
-# -------------------------------------------- #
-
-from meeko import MoleculePreparation, PDBQTWriterLegacy
-def export_mol(mol, outfile, addHs=False, verbose=False):
-    mol = deepcopy(mol)
-    if 'pdbqt' in outfile:
-        mol = Chem.AddHs(mol, addCoords=True)
-        AllChem.EmbedMolecule(mol)
-        mol_setup = MoleculePreparation().prepare(mol)[0]
-        pdbqt_string = PDBQTWriterLegacy.write_string(mol_setup)[0]
-        with open(outfile, 'w') as f:
-            f.write(pdbqt_string)
-
-        # Fixing problems with G0 atoms (vina cannot handle them)
-        if 'G0' in pdbqt_string:
-            with open(outfile, 'r') as f:
-                lines = f.read().splitlines()
-                lines = [x for x in lines if ' G0' not in x]
-                lines = [x.replace('CG0', 'C') for x in lines]
-            with open(outfile, 'w') as f:
-                f.write('\n'.join(lines))
-
-    elif 'sdf' in outfile:
-        if addHs:
-            mol = Chem.AddHs(mol, addCoords=True)
-        # AllChem.EmbedMolecule(mol)
-        with open(outfile, 'w') as fw:
-            Chem.SDWriter(fw).write(mol)
-    
-    if verbose:
-        print(f"*** Succesfully exported {outfile} ***")
-        
 
 def draw_mols(mols, filename=None, align=False):
 

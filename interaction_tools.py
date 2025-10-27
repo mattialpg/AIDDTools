@@ -1,8 +1,9 @@
 import warnings
+
 warnings.simplefilter('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
-import os, shutil
+import os, sys, shutil
 from pathlib import Path
 import lxml.etree as ET
 import numpy as np
@@ -11,10 +12,15 @@ from tqdm import tqdm
 import yaml
 from concurrent.futures import ProcessPoolExecutor
 
-with warnings.catch_warnings():
-    from plip.structure.preparation import PDBComplex
-    from plip.exchange.report import BindingSiteReport
-    from plip.basic import config
+sys.path.append(str(Path(__file__).resolve().parent))
+# with warnings.catch_warnings():
+from pymol import cmd
+from plip_modded.structure.preparation import PDBComplex
+from plip_modded.exchange.report import BindingSiteReport
+from plip_modded.basic import config
+from plip_modded.basic.remote import VisualizerData
+from plip_modded.visualization.visualize import visualize_in_pymol
+
 
 import logging
 logging.basicConfig(
@@ -92,13 +98,10 @@ def generate_pymol(complex, ligand, pdb_id, site, pdb_file,
     """
     Generate PyMOL session or PDB binding site file for a specific ligand binding site.
     """
-    from pymol import cmd
-    from plip.basic.remote import VisualizerData
-    from plip.visualization.visualize import visualize_in_pymol
 
     residues = complex.interaction_sets[site].interacting_res
     residues += [f"{ligand.position}{ligand.chain}"]
-    basename = f"{pdb_id}_{ligand.hetid}-{ligand.position}-{ligand.chain}_{site.replace(':', '-')}"
+    basename = f"{pdb_id}_{site.replace(':', '-')}"
 
     # Save PyMOL session (.pse)
     if pse_outdir:
@@ -107,17 +110,20 @@ def generate_pymol(complex, ligand, pdb_id, site, pdb_file,
         visualize_in_pymol(vdata, residues_to_keep=residues)
         pse_path = os.path.join(pse_outdir, f"{basename}.pdb")
         shutil.move(f"{pdb_id.lower()}.pdb", pse_path)
-        logger.info(f"Saved PyMOL session {basename}.pdb")
+        # logger.info(f"Saved PyMOL session {basename}.pdb")
 
     # Save binding site PDB
     if pdb_outdir:
         os.makedirs(pdb_outdir, exist_ok=True)
         outpath = os.path.join(pdb_outdir, f"{basename}.pdb")
         selection = " or ".join([f"(chain {r[-1]} and resi {r[:-1]})" for r in residues])
+        print(residues)
         cmd.load(str(pdb_file), pdb_id)
+        com = cmd.centerofmass(selection)
+        cmd.translate([-com[0], -com[1], -com[2]], "all")
         cmd.save(outpath, selection)
         cmd.delete("all")
-        logger.info(f"Saved binding site PDB {basename}.pdb")
+        # print(f"Saved binding site PDB {basename}.pdb")
 
 
 def get_interactions(pdb_file, lig_id=None, xml_outdir=None,
@@ -138,7 +144,7 @@ def get_interactions(pdb_file, lig_id=None, xml_outdir=None,
         ligands_to_analyse = ([lig for lig in complex.ligands if lig.hetid == lig_id]
             if lig_id else complex.ligands)
         if not ligands_to_analyse:
-            logger.warning(f"No ligand found matching {lig_id} in {pdb_id}")
+            # logger.warning(f"No ligand found matching {lig_id} in {pdb_id}")
             return {}
         
         for ligand in ligands_to_analyse:
@@ -150,7 +156,7 @@ def get_interactions(pdb_file, lig_id=None, xml_outdir=None,
                 xml_element = binding_site.generate_xml()
                 xml_string = ET.tostring(xml_element, encoding="unicode")
 
-                basename = f"{pdb_id}:{ligand.hetid}:{ligand.position}:{ligand.chain}"
+                basename = f"{pdb_id}-{ligand.hetid}-{ligand.position}-{ligand.chain}"
                 xml_data[basename] = xml_string
 
                 if xml_outdir:
@@ -158,7 +164,7 @@ def get_interactions(pdb_file, lig_id=None, xml_outdir=None,
                     xml_path = os.path.join(xml_outdir, f"{basename}.xml")
                     with open(xml_path, "w") as xml_file:
                         xml_file.write(xml_string   )
-                    logger.info(f"Saved PLIP XML for {basename}")
+                    # logger.info(f"Saved PLIP XML for {basename}")
 
             # Generate PyMOL visualisation if requested
             if pdb_outdir or pse_outdir:
@@ -171,7 +177,7 @@ def get_interactions(pdb_file, lig_id=None, xml_outdir=None,
         return xml_data
 
     except Exception as exc:
-        logger.error(f"Error analysing {pdb_id}: {exc}")
+        # logger.error(f"Error analysing {pdb_id}: {exc}")
         return {}
 
 
